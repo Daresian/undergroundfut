@@ -1,217 +1,179 @@
-import logging
 import os
 import time
+import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
+# ================= CONFIG =================
 TOKEN = os.getenv("BOT_TOKEN")
 
-logging.basicConfig(level=logging.INFO)
-
-# CONFIG
-ADMIN_ID = 123456789  # <-- CAMBIA ESTO
+ADMIN_ID = 13493800   # ← CAMBIAR
+GROUP_ID = -1001234567890  # ← CAMBIAR
+BOT_USERNAME = "Futelite_bot"  # ← SIN @
 PAYPAL_LINK = "https://paypal.me/bucefalo74"
-COMMISSION = 0.30
-CONFIRM_TIME = 900  # 15 minutos
 
-# DATA
+COMMISSION = 0.30
+CONFIRM_TIME = 900
+
+# ================= DATA =================
 queues = {5: [], 10: [], 20: [], 50: [], 100: []}
 balances = {}
-approved = {}
+rules_step = {}
 matches = {}
 pending_results = {}
-user_devices = {}
+last_opponent = {}
 
-# HELPERS
-def get_username(user):
-    return user.username if user.username else user.first_name
+# ================= REGLAS (TAL CUAL) =================
+RULES_1 = """REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
+Reglamento General
+La Comunidad Underground Fut está reservada exclusivamente para personas mayores de 18 años. Es fundamental que ambos participantes graben todos los partidos, ya que la grabación será el único elemento válido en caso de discrepancia sobre el resultado del encuentro. Si un jugador no realiza la grabación, perderá el derecho a reclamar el dinero en caso de que surja algún desacuerdo. Además, Underground Fut se reserva el derecho de subir o retransmitir los partidos a través de su cuenta de Twitch.
 
-def ensure_user(user_id):
-    if user_id not in balances:
-        balances[user_id] = 0
-        approved[user_id] = False
+Reglas de Emparejamiento en Telegram
+Para participar en los emparejamientos, cada jugador debe disponer de un usuario en Telegram (en formato @usuario) y activar el bot correspondiente. Esto es imprescindible para acceder a los partidos y ser emparejado correctamente.
+"""
 
-# BIENVENIDA
+RULES_2 = """Reglas de Pago
+Está terminantemente prohibido tener varias cuentas y pactar partidas entre ellas. El sistema monitoriza patrones de juego para detectar posibles fraudes. Cualquier intento de engaño supondrá la expulsión inmediata de la comunidad y la pérdida de todo el saldo ingresado. El pago debe realizarse antes de solicitar el emparejamiento, permitiendo a cada jugador añadir la cantidad que desee a su monedero. El dinero jugado permanecerá retenido hasta la validación del resultado, y el premio será autorizado y abonado tras la validación, en un plazo máximo de 12 horas.
+
+Reglas de Partido
+Los partidos se disputarán en la modalidad Partido Amistoso online, utilizando siempre la configuración por defecto del juego. No está permitido modificar los ajustes, y la duración será de 6 minutos por parte. Todos los partidos deben finalizar con una victoria; el empate no es un resultado válido, por lo que se debe jugar prórroga y penaltis si es necesario. Solo se pueden utilizar equipos Ultimate Team.
+"""
+
+RULES_3 = """Está prohibida la utilización de sliders y hándicaps. En caso de incumplimiento, el jugador será expulsado de la comunidad y perderá todo el dinero ingresado. Los partidos son exclusivamente 1 contra 1, por lo que no se permite la participación de dos o más personas en un mismo equipo. Tampoco está permitida la pérdida manifiesta de tiempo mediante la posesión del balón; los administradores revisarán las grabaciones y sancionarán con la pérdida del partido a quien infrinja esta norma.
+
+Tiempo para Jugar
+Tras realizar el emparejamiento, los usuarios dispondrán de un máximo de 15 minutos para ponerse en contacto y acordar el inicio del partido. Una vez hecho el “match”, tendrán un máximo de 1 hora para jugar y comunicar el resultado.
+
+Desconexiones
+Es imprescindible que ambos jugadores graben los partidos para conservar el derecho a reclamar en caso de disputa.
+
+Desconexión Aparentemente Involuntaria
+1. Si se desconecta el jugador que va perdiendo, la victoria se otorgará al jugador que va ganando.
+2. Si se desconecta el jugador que va ganando, el partido se repetirá.
+3. En caso de empate con ambos equipos jugando 11 contra 11, el partido se reiniciará con la misma alineación y se jugará el tiempo restante.
+4. En caso de empate y que uno de los equipos tenga una o más tarjetas rojas, la victoria será adjudicada al jugador que conserve los 11 jugadores o que tenga menos tarjetas rojas.
+
+Desconexión Voluntaria (Abandono de partida)
+1. En caso de desconexión voluntaria, la victoria será concedida al jugador que mantiene la conexión, independientemente del resultado en el momento de la desconexión.
+
+Fair Play
+• Está prohibido insultar. Comportamiento tóxico. Expulsión Inmediata de la comunidad.
+• No se permite el uso de bugs.
+• La pérdida de tiempo intencional está sancionada.
+• No está permitido desconectarse del partido de forma injustificada.
+
+Responde con ✅ para aceptar
+"""
+
+# ================= INIT =================
+def init_user(uid):
+    if uid not in balances:
+        balances[uid] = 0
+        rules_step[uid] = 0
+
+# ================= BIENVENIDA =================
 async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for user in update.message.new_chat_members:
-        await context.bot.send_message(
-            chat_id=user.id,
-            text=f"""
-👋 Bienvenido
+        await context.bot.send_message(user.id, RULES_1)
+        rules_step[user.id] = 1
 
-📜 Reglas:
-- Debes pagar antes de jugar
-- Tienes 15 min para confirmar resultado
-- Trampas = baneo
+# ================= MAIN =================
+async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user = update.message.from_user
+    uid = user.id
 
-💰 Recarga saldo:
+    init_user(uid)
+
+    # ===== REGLAS =====
+    if rules_step[uid] == 1:
+        await context.bot.send_message(uid, RULES_2)
+        rules_step[uid] = 2
+        return
+
+    if rules_step[uid] == 2:
+        await context.bot.send_message(uid, RULES_3)
+        rules_step[uid] = 3
+        return
+
+    if rules_step[uid] == 3:
+        if text == "✅":
+            rules_step[uid] = 4
+            await context.bot.send_message(uid, f"""
+✅ Reglas aceptadas
+
+💰 Paga aquí:
 {PAYPAL_LINK}
 
-Cuando pagues escribe:
-PAY
+Cuando pagues escribe: PAY
 
-Luego espera aprobación
-"""
-        )
-
-# MENSAJES
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.upper()
-    user = update.message.from_user
-    user_id = user.id
-    username = get_username(user)
-
-    ensure_user(user_id)
-
-    # ANTI MULTICUENTA (básico)
-    device = str(user_id)[:5]
-    if device in user_devices and user_devices[device] != user_id:
-        await update.message.reply_text("🚫 Posible multicuenta detectada")
+🎮 PLAY 5 / 10 / 20 / 50 / 100
+""")
+        else:
+            await context.bot.send_message(uid, "Debes aceptar con ✅")
         return
-    user_devices[device] = user_id
 
-    # VER SALDO
-    if text == "SALDO":
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=f"💰 Tu saldo: {balances[user_id]}€"
-        )
+    if rules_step[uid] != 4:
+        return
 
-    # SOLICITAR PAGO
-    elif text == "PAY":
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text=f"💰 {username} quiere recargar saldo"
-        )
-        await update.message.reply_text("⏳ Esperando aprobación admin")
+    # ===== PLAY =====
+    if text.upper().startswith("PLAY"):
+        amount = int(text.split()[1])
 
-    # ADMIN APRUEBA
-    elif text.startswith("OK") and user_id == ADMIN_ID:
-        try:
-            parts = text.split()
-            target_username = parts[1]
-            amount = int(parts[2])
+        if balances[uid] < amount:
+            return
 
-            for uid in balances:
-                # búsqueda simple
-                if True:
-                    balances[uid] += amount
-                    approved[uid] = True
-                    await context.bot.send_message(
-                        chat_id=uid,
-                        text=f"✅ Pago aprobado\n💰 Saldo: {balances[uid]}€"
-                    )
-                    break
+        queues[amount].append(uid)
 
-        except:
-            await update.message.reply_text("Formato: OK usuario cantidad")
+        if len(queues[amount]) >= 2:
+            p1 = queues[amount].pop(0)
+            p2 = queues[amount].pop(0)
 
-    # PLAY
-    elif text.startswith("PLAY"):
-        try:
-            amount = int(text.split()[1])
-
-            if amount not in queues:
+            # ANTI TRAMPAS
+            if last_opponent.get(p1) == p2:
                 return
 
-            if balances[user_id] < amount:
-                await update.message.reply_text("❌ Saldo insuficiente")
-                return
+            last_opponent[p1] = p2
+            last_opponent[p2] = p1
 
-            queues[amount].append(user_id)
-            await update.message.reply_text(f"✅ Entraste en cola {amount}€")
+            balances[p1] -= amount
+            balances[p2] -= amount
 
-            if len(queues[amount]) >= 2:
-                p1 = queues[amount].pop(0)
-                p2 = queues[amount].pop(0)
-
-                # descontar saldo
-                balances[p1] -= amount
-                balances[p2] -= amount
-
-                match_id = f"{p1}_{p2}_{time.time()}"
-                matches[match_id] = (p1, p2, amount)
-
-                await context.bot.send_message(p1, f"""
-⚔️ MATCH ENCONTRADO
-
-Rival: {p2}
-Apuesta: {amount}€
-Premio: {int(amount*2*(1-COMMISSION))}€
-
-Contacta por privado y juega.
-""")
-
-                await context.bot.send_message(p2, f"""
-⚔️ MATCH ENCONTRADO
-
-Rival: {p1}
-Apuesta: {amount}€
-Premio: {int(amount*2*(1-COMMISSION))}€
-
-Contacta por privado y juega.
-""")
-
-        except:
-            pass
-
-    # REPORTAR RESULTADO
-    elif text.startswith("WIN"):
-        try:
-            match_id = list(matches.keys())[0]
-            p1, p2, amount = matches[match_id]
-
-            if user_id not in [p1, p2]:
-                return
-
-            pending_results[match_id] = {
-                "winner": user_id,
-                "time": time.time(),
-                "confirmed": False
-            }
-
-            loser = p2 if user_id == p1 else p1
+            match_id = f"{p1}_{p2}_{time.time()}"
+            matches[match_id] = (p1, p2, amount)
 
             await context.bot.send_message(
-                chat_id=loser,
-                text="⚠️ Rival dice que ha ganado\nResponde WIN o NO"
+                GROUP_ID,
+                f"""⚔️ MATCH
+
+Jugador {p1} vs Jugador {p2}
+
+Responder a ESTE mensaje con:
+
+Usuario ganador ✅"""
             )
 
-        except:
-            pass
+    # ===== RESULTADO =====
+    elif "✅" in text:
+        for match_id, (p1, p2, amount) in matches.items():
 
-    # CONFIRMAR
-    elif text == "WIN":
-        for match_id in pending_results:
-            data = pending_results[match_id]
-            p1, p2, amount = matches[match_id]
+            if str(p1) in text:
+                winner = p1
+            elif str(p2) in text:
+                winner = p2
+            else:
+                continue
 
-            if user_id in [p1, p2]:
-                winner = data["winner"]
+            pending_results[match_id] = {
+                "winner": winner,
+                "time": time.time()
+            }
 
-                prize = int(amount * 2 * (1 - COMMISSION))
-                balances[winner] += prize
-
-                await context.bot.send_message(
-                    chat_id=winner,
-                    text=f"🏆 Ganaste {prize}€\n💰 Saldo: {balances[winner]}"
-                )
-
-                del matches[match_id]
-                del pending_results[match_id]
-                break
-
-    # DISPUTA
-    elif text == "NO":
-        await context.bot.send_message(
-            chat_id=ADMIN_ID,
-            text="🚨 DISPUTA DETECTADA"
-        )
-
-# TIMEOUT
-async def check_timeouts(app):
+# ===== AUTO =====
+async def auto_confirm(app):
     while True:
         now = time.time()
+
         for match_id in list(pending_results.keys()):
             data = pending_results[match_id]
 
@@ -222,17 +184,24 @@ async def check_timeouts(app):
                 prize = int(amount * 2 * (1 - COMMISSION))
                 balances[winner] += prize
 
+                await app.bot.send_message(
+                    GROUP_ID,
+                    f"🎉🎊 Felicidades 🎉🎊 Jugador {winner} ha ganado {prize} € 💰💰"
+                )
+
                 del matches[match_id]
                 del pending_results[match_id]
 
         await asyncio.sleep(30)
 
-# MAIN
+# ================= RUN =================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+
+    app.job_queue.run_once(lambda ctx: asyncio.create_task(auto_confirm(app)), 1)
 
     app.run_polling()
 
