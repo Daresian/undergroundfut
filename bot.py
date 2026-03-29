@@ -17,7 +17,7 @@ from telegram.ext import (
 # ================= CONFIG =================
 TOKEN = os.getenv("BOT_TOKEN")
 
-ADMIN_ID = 123456789
+ADMIN_ID = 13493800
 GROUP_ID = -1001234567890
 BOT_USERNAME = "TuBot"
 PAYPAL_LINK = "https://paypal.me/bucefalo74"
