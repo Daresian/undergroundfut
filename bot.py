@@ -1,18 +1,22 @@
 import os
 from datetime import datetime
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-
-# ======================
-# CONFIG
-# ======================
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    CallbackQueryHandler,
+)
 
 TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 usuarios = {}
+cola = {5: [], 10: [], 20: [], 50: [], 100: []}
+partidas = {}
 
 # ======================
-# REGLAS EXACTAS (TUS TEXTOS)
+# REGLAS EXACTAS (NO TOCADAS)
 # ======================
 
 RULES_1 = """REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT Reglamento General La Comunidad Underground Fut está reservada exclusivamente para personas mayores de 18 años. Es fundamental que ambos participantes graben todos los partidos, ya que la grabación será el único elemento válido en caso de discrepancia sobre el resultado del encuentro. Si un jugador no realiza la grabación, perderá el derecho a reclamar el dinero en caso de que surja algún desacuerdo. Además, Underground Fut se reserva el derecho de subir o retransmitir los partidos a través de su cuenta de Twitch. Reglas de Emparejamiento en Telegram Para participar en los emparejamientos, cada jugador debe disponer de un usuario en Telegram (en formato @usuario) y activar el bot correspondiente. Esto es imprescindible para acceder a los partidos y ser emparejado correctamente."""
@@ -22,100 +26,128 @@ RULES_2 = """Reglas de Pago Está terminantemente prohibido tener varias cuentas
 RULES_3 = """Está prohibida la utilización de sliders y hándicaps. En caso de incumplimiento, el jugador será expulsado de la comunidad y perderá todo el dinero ingresado. Los partidos son exclusivamente 1 contra 1, por lo que no se permite la participación de dos o más personas en un mismo equipo. Tampoco está permitida la pérdida manifiesta de tiempo mediante la posesión del balón; los administradores revisarán las grabaciones y sancionarán con la pérdida del partido a quien infrinja esta norma. Tiempo para Jugar Tras realizar el emparejamiento, los usuarios dispondrán de un máximo de 15 minutos para ponerse en contacto y acordar el inicio del partido. Una vez hecho el “match”, tendrán un máximo de 1 hora para jugar y comunicar el resultado. Desconexiones Es imprescindible que ambos jugadores graben los partidos para conservar el derecho a reclamar en caso de disputa. Desconexión Aparentemente Involuntaria 1. Si se desconecta el jugador que va perdiendo, la victoria se otorgará al jugador que va ganando. 2. Si se desconecta el jugador que va ganando, el partido se repetirá. 3. En caso de empate con ambos equipos jugando 11 contra 11, el partido se reiniciará con la misma alineación y se jugará el tiempo restante. 4. En caso de empate y que uno de los equipos tenga una o más tarjetas rojas, la victoria será adjudicada al jugador que conserve los 11 jugadores o que tenga menos tarjetas rojas. Desconexión Voluntaria (Abandono de partida) 1. En caso de desconexión voluntaria, la victoria será concedida al jugador que mantiene la conexión, independientemente del resultado en el momento de la desconexión. Fair Play • Está prohibido insultar. Comportamiento tóxico. Expulsión Inmediata de la comunidad. • No se permite el uso de bugs. • La pérdida de tiempo intencional está sancionada. • No está permitido desconectarse del partido de forma injustificada."""
 
 # ======================
-# /start → BIENVENIDA
+# START + ACEPTAR REGLAS
 # ======================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+    keyboard = [[InlineKeyboardButton("Aceptar reglas", callback_data="accept")]]
+    await update.message.reply_text(
+        RULES_1 + "\n\n" + RULES_2 + "\n\n" + RULES_3,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
 
-    if user.id not in usuarios:
-        usuarios[user.id] = {
-            "username": user.username if user.username else "sin_username",
-            "registro": datetime.now(),
-            "partidos": 0
+async def aceptar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = query.from_user
+
+    usuarios[user.id] = {
+        "username": user.username,
+        "jugando": False,
+    }
+
+    keyboard = [
+        [
+            InlineKeyboardButton("PLAY 5", callback_data="play_5"),
+            InlineKeyboardButton("PLAY 10", callback_data="play_10"),
+        ],
+        [
+            InlineKeyboardButton("PLAY 20", callback_data="play_20"),
+            InlineKeyboardButton("PLAY 50", callback_data="play_50"),
+            InlineKeyboardButton("PLAY 100", callback_data="play_100"),
+        ],
+    ]
+
+    await query.message.reply_text(
+        f"Bienvenido @{user.username}", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# ======================
+# COLAS + MATCH
+# ======================
+
+async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = query.from_user
+    amount = int(query.data.split("_")[1])
+
+    if usuarios[user.id]["jugando"]:
+        await query.answer("Ya estás en partida o cola")
+        return
+
+    cola[amount].append(user.id)
+    usuarios[user.id]["jugando"] = True
+
+    if len(cola[amount]) >= 2:
+        u1 = cola[amount].pop(0)
+        u2 = cola[amount].pop(0)
+
+        partida_id = f"{u1}_{u2}"
+        partidas[partida_id] = {
+            "players": [u1, u2],
+            "estado": "playing",
+            "reportes": [],
         }
 
-    texto = f"""
-🔥 Bienvenido a Underground FUT {user.first_name}
+        keyboard = [
+            [InlineKeyboardButton("Soy ganador", callback_data=f"win_{partida_id}")]
+        ]
 
-📜 Usa /reglas para ver el reglamento completo
-👤 Usa /perfil para ver tu perfil
-🎮 Usa /jugar para registrar partido
-
-⚠️ Es obligatorio grabar todos los partidos
-"""
-    await update.message.reply_text(texto)
-
-# ======================
-# /reglas
-# ======================
-
-async def reglas(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(RULES_1)
-    await update.message.reply_text(RULES_2)
-    await update.message.reply_text(RULES_3)
+        for uid in [u1, u2]:
+            await context.bot.send_message(
+                uid,
+                f"Match encontrado contra @{usuarios[u2 if uid==u1 else u1]['username']}",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+            )
+    else:
+        await query.answer(f"En cola {amount}€...")
 
 # ======================
-# /jugar
+# RESULTADO
 # ======================
 
-async def jugar(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+async def resultado(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = query.from_user
+    partida_id = query.data.split("_", 1)[1]
 
-    if user.id not in usuarios:
-        await update.message.reply_text("⚠️ Usa /start primero")
+    partida = partidas.get(partida_id)
+
+    if user.id in partida["reportes"]:
+        await query.answer("Ya reportaste")
         return
 
-    usuarios[user.id]["partidos"] += 1
+    partida["reportes"].append(user.id)
 
-    if usuarios[user.id]["partidos"] > 100:
-        await update.message.reply_text("🚨 Actividad sospechosa detectada")
+    if len(partida["reportes"]) == 2:
+        partida["estado"] = "finished"
 
-    await update.message.reply_text("✅ Partido registrado")
+        for uid in partida["players"]:
+            usuarios[uid]["jugando"] = False
 
-# ======================
-# /perfil
-# ======================
+        if ADMIN_ID:
+            await context.bot.send_message(
+                ADMIN_ID, f"Partida finalizada: {partida_id}"
+            )
 
-async def perfil(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
+        await query.message.reply_text("Resultado confirmado")
 
-    if user.id not in usuarios:
-        await update.message.reply_text("No registrado")
-        return
-
-    data = usuarios[user.id]
-
-    texto = f"""
-👤 Usuario: @{data['username']}
-🎮 Partidos: {data['partidos']}
-📅 Registro: {data['registro'].strftime("%d/%m/%Y")}
-"""
-    await update.message.reply_text(texto)
+    else:
+        await query.answer("Esperando rival...")
 
 # ======================
 # MAIN
 # ======================
 
 def main():
-    if not TOKEN:
-        print("ERROR: Falta BOT_TOKEN")
-        return
-
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("reglas", reglas))
-    app.add_handler(CommandHandler("jugar", jugar))
-    app.add_handler(CommandHandler("perfil", perfil))
+    app.add_handler(CallbackQueryHandler(aceptar, pattern="accept"))
+    app.add_handler(CallbackQueryHandler(play, pattern="play_"))
+    app.add_handler(CallbackQueryHandler(resultado, pattern="win_"))
 
     print("Bot iniciado correctamente")
-
     app.run_polling()
-
-# ======================
-# ARRANQUE
-# ======================
 
 if __name__ == "__main__":
     main()
