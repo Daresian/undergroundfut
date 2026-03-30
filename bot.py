@@ -8,7 +8,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 
 ADMIN_ID = 13493800
 GROUP_ID = -1001234567890
-BOT_USERNAME = "@futelite_bot"
+BOT_USERNAME = "futelite_bot"
 PAYPAL_LINK = "https://paypal.me/bucefalo74"
 
 COMMISSION = 0.30
