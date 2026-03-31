@@ -1,79 +1,80 @@
-import logging
-import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-    CallbackQueryHandler,
-    MessageHandler,
-    filters,
+
+# ================= DATABASE =================
+
+conn = sqlite3.connect("bot.db", check_same_thread=False)
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    authorized_amount INTEGER
 )
+""")
+conn.commit()
 
-TOKEN = os.getenv("BOT_TOKEN")
-
-GROUP_ID = -1003882941029
-ADMIN_ID = 13493800
-BOT_LINK = "https://t.me/Futelite_bot"
-PAYPAL_LINK = "https://paypal.me/bucefalo74"
-
-logging.basicConfig(level=logging.INFO)
+# ================= MEMORIA =================
 
 queue = {5: [], 10: [], 20: [], 50: [], 100: []}
 matches = {}
 user_match = {}
-users_started = set()
-authorized_users = {}
 match_id_counter = 1
 
 def get_name(user):
     return f"@{user.username}" if user.username else user.first_name
+
+def is_authorized(user_id, amount):
+    cursor.execute("SELECT authorized_amount FROM users WHERE user_id=?", (user_id,))
+    row = cursor.fetchone()
+    return row and row[0] == amount
+
+def authorize_user(user_id, amount):
+    cursor.execute("INSERT OR REPLACE INTO users (user_id, authorized_amount) VALUES (?,?)", (user_id, amount))
+    conn.commit()
 
 # ================= REGLAS =================
 
 RULES_1 = """📜 REGLAMENTO UNDERGROUND FUT
 
 🇪🇸
-La comunidad es solo para mayores de 18 años.
-Es obligatorio grabar los partidos.
-Si no grabas → pierdes derecho a reclamar.
-Underground Fut puede retransmitir los partidos.
++18 obligatorio
+Grabar partidos obligatorio
+Sin grabación → pierdes derecho a reclamar
+Posible retransmisión en Twitch
 
 Emparejamiento:
-Necesitas usuario Telegram (@usuario) y activar el bot.
+Necesitas Telegram + activar bot
 
 Pagos:
-Prohibido multicuentas o fraude → expulsión + pérdida de saldo.
-Debes pagar antes de jugar.
-Validación en máximo 12h.
+Prohibido fraude o multicuentas
+Pago antes de jugar
+Validación hasta 12h
 
 ---
 
 🇬🇧
-Community for +18 only.
-Matches must be recorded.
-No recording → no claim rights.
-Matches may be streamed.
+18+ only
+Recording required
+No recording → no claim
+Matches may be streamed
 
 Matchmaking:
-Telegram username required and bot activated.
+Telegram + bot required
 
 Payments:
-No multi-accounts or fraud.
-Pay before playing.
-Validation within 12h.
+No fraud
+Pay before play
+Validation up to 12h
 """
 
 RULES_2 = """📜 REGLAS DE PARTIDO
 
 🇪🇸
-Modo amistoso online
-6 min por parte
-Sin empate (prórroga + penaltis)
+Amistoso online
+6 min partes
+Sin empate
 Solo Ultimate Team
-Sin sliders ni hacks
+Sin hacks
 1 vs 1 obligatorio
-Prohibido perder tiempo
 
 Tiempo:
 15 min contacto
@@ -82,48 +83,45 @@ Tiempo:
 ---
 
 🇬🇧
-Online friendly mode
+Online friendly
 6 min halves
-No draws (extra time + penalties)
+No draws
 Ultimate Team only
-No sliders/hacks
-Strict 1v1
-No time wasting
+No hacks
+1v1 only
 
 Time:
 15 min contact
 1h play
 """
 
-RULES_3 = """📜 DESCONEXIONES Y FAIR PLAY
+RULES_3 = """📜 FAIR PLAY
 
 🇪🇸
 Desconexión:
-Pierde quien iba perdiendo
+Pierde el que iba perdiendo
 Si ganaba → repetir
-Empate → repetir
 
 Voluntaria → pierde
 
-Fair Play:
-Prohibido insultar
-Prohibido bugs
-Prohibido abandonar
+Prohibido:
+Insultos
+Bugs
+Abandonar
 
 ---
 
 🇬🇧
-Disconnection:
+Disconnect:
 Losing player loses
 Winning → replay
-Draw → replay
 
 Voluntary quit → loss
 
-Fair Play:
-No insults
-No exploits
-No quitting
+No:
+Insults
+Exploits
+Quit
 """
 
 # ================= NUEVO USUARIO =================
@@ -131,22 +129,19 @@ No quitting
 async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for user in update.message.new_chat_members:
 
-        kb = [[InlineKeyboardButton("👉 Activar Bot / Start Bot", url=BOT_LINK)]]
+        kb = [[InlineKeyboardButton("👉 Activar Bot", url=BOT_LINK)]]
 
         await update.message.reply_text(
             f"👋 Bienvenido {get_name(user)}\n\n"
-            f"🇪🇸 Pulsa el botón y escribe /start\n"
-            f"🇬🇧 Click and press /start",
+            "Pulsa el botón y escribe /start\n\n"
+            "Click and press /start",
             reply_markup=InlineKeyboardMarkup(kb)
         )
 
-        # intento de mensaje privado (solo funciona si ya abrió el bot antes)
         try:
             await context.bot.send_message(
                 user.id,
-                f"👋 Bienvenido\n\n"
-                f"👉 Activa el bot aquí:\n{BOT_LINK}\n"
-                f"Escribe /start"
+                f"👉 Activa el bot:\n{BOT_LINK}\n/start"
             )
         except:
             pass
@@ -154,10 +149,7 @@ async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================= START =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    users_started.add(update.effective_user.id)
-
-    kb = [[InlineKeyboardButton("✅ Aceptar reglas / Accept", callback_data="accept")]]
-
+    kb = [[InlineKeyboardButton("Aceptar / Accept", callback_data="accept")]]
     await update.message.reply_text(RULES_1, reply_markup=InlineKeyboardMarkup(kb))
 
 # ================= ACEPTAR =================
@@ -170,20 +162,12 @@ async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text(RULES_3)
 
     await q.message.reply_text(
-        "✅ Ya puedes jugar\n\n"
-        "1. Ve al grupo\n"
-        "2. Escribe PLAY\n\n"
-        "🇬🇧 You can now play"
+        "✅ Ya puedes jugar\n\nVe al grupo y escribe PLAY\n\nYou can play now"
     )
 
 # ================= PLAY =================
 
 async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-
-    if user.id not in users_started:
-        await update.message.reply_text("⚠️ Haz /start en privado primero")
-        return
 
     kb = [
         [InlineKeyboardButton("5€", callback_data="p5"), InlineKeyboardButton("10€", callback_data="p10")],
@@ -191,7 +175,7 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("100€", callback_data="p100")]
     ]
 
-    await update.message.reply_text("Selecciona / Select", reply_markup=InlineKeyboardMarkup(kb))
+    await update.message.reply_text("Selecciona partido", reply_markup=InlineKeyboardMarkup(kb))
 
 # ================= SELECT =================
 
@@ -204,31 +188,29 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = q.from_user
     amount = int(q.data.replace("p", ""))
 
-    # ADMIN bypass (modo test)
     if user.id != ADMIN_ID:
 
-        if authorized_users.get(user.id) != amount:
+        if not is_authorized(user.id, amount):
+
             try:
                 await context.bot.send_message(
                     user.id,
-                    f"💳 Debes ingresar {amount}€ aquí:\n{PAYPAL_LINK}\n\n"
-                    f"🇬🇧 Send {amount}€ here:\n{PAYPAL_LINK}"
+                    f"💳 Debes ingresar {amount}€:\n{PAYPAL_LINK}\n\n"
+                    f"Send {amount}€ here"
                 )
-            except:
-                await q.answer("Abre el bot primero", show_alert=True)
-                return
 
-            await q.answer("Debes pagar primero", show_alert=True)
+                await q.message.reply_text("💳 Revisa tu privado para pagar")
+
+            except:
+                await q.message.reply_text(f"Abre el bot primero:\n{BOT_LINK}")
+
             return
 
     if user.id in user_match:
-        return
-
-    if any(user in ql for ql in queue.values()):
+        await q.message.reply_text("Ya estás en partida")
         return
 
     queue[amount].append(user)
-
     await q.message.reply_text("⏳ En cola")
 
     if len(queue[amount]) >= 2:
@@ -238,13 +220,13 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         match_id = match_id_counter
         match_id_counter += 1
 
-        matches[match_id] = {"p1": p1, "p2": p2, "amount": amount, "reports": {}}
+        matches[match_id] = {"p1": p1, "p2": p2, "reports": {}}
         user_match[p1.id] = match_id
         user_match[p2.id] = match_id
 
         kb = [[
-            InlineKeyboardButton(f"🏆 {get_name(p1)}", callback_data=f"win_{match_id}_{p1.id}"),
-            InlineKeyboardButton(f"🏆 {get_name(p2)}", callback_data=f"win_{match_id}_{p2.id}")
+            InlineKeyboardButton(f"{get_name(p1)} gana", callback_data=f"win_{match_id}_{p1.id}"),
+            InlineKeyboardButton(f"{get_name(p2)} gana", callback_data=f"win_{match_id}_{p2.id}")
         ],
         [InlineKeyboardButton("⚠️ Disputa", callback_data=f"draw_{match_id}")]
         ]
@@ -258,25 +240,22 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================= AUTORIZAR =================
 
 async def autorizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     if update.effective_user.id != ADMIN_ID:
         return
 
     if not update.message.reply_to_message:
-        await update.message.reply_text("Responde al usuario con /autorizar 10")
+        await update.message.reply_text("Responde con /autorizar 10")
         return
 
-    try:
-        amount = int(context.args[0])
-    except:
-        await update.message.reply_text("Uso: /autorizar 10")
-        return
-
+    amount = int(context.args[0])
     user = update.message.reply_to_message.from_user
-    authorized_users[user.id] = amount
+
+    authorize_user(user.id, amount)
 
     await context.bot.send_message(
         user.id,
-        f"✅ Autorizado Play {amount}\n\n🇬🇧 Authorized Play {amount}"
+        f"✅ Autorizado Play {amount}\n\nAuthorized Play {amount}"
     )
 
     await update.message.reply_text("OK autorizado")
@@ -284,6 +263,7 @@ async def autorizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ================= RESULTADO =================
 
 async def win(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     q = update.callback_query
     await q.answer()
 
@@ -303,11 +283,11 @@ async def win(update: Update, context: ContextTypes.DEFAULT_TYPE):
         votes = list(match["reports"].values())
 
         if votes[0] == votes[1]:
-            winner_user = match["p1"] if match["p1"].id == votes[0] else match["p2"]
+            winner = match["p1"] if match["p1"].id == votes[0] else match["p2"]
 
             await context.bot.send_message(
                 GROUP_ID,
-                f"🏆 Ganador: {get_name(winner_user)}"
+                f"🏆 Ganador: {get_name(winner)}"
             )
         else:
             await context.bot.send_message(GROUP_ID, "⚠️ DISPUTA")
