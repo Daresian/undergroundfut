@@ -52,97 +52,70 @@ def authorize_user(user_id, amount):
     cursor.execute("INSERT OR REPLACE INTO users (user_id, authorized_amount) VALUES (?,?)", (user_id, amount))
     conn.commit()
 
-# ================= REGLAS =================
+# ================= REGLAS COMPLETAS =================
 
-RULES_1 = """📜 REGLAMENTO UNDERGROUND FUT
+RULES_1 = """📜 REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
 
 🇪🇸
-+18 obligatorio
-Grabar partidos obligatorio
-Sin grabación → pierdes derecho a reclamar
-Posible retransmisión en Twitch
-
-Emparejamiento:
-Necesitas Telegram + activar bot
-
-Pagos:
-Prohibido fraude o multicuentas
-Pago antes de jugar
-Validación hasta 12h
-
----
+Reglamento General
+La Comunidad Underground Fut está reservada exclusivamente para personas mayores de 18 años. Es fundamental que ambos participantes graben todos los partidos, ya que la grabación será el único elemento válido en caso de discrepancia sobre el resultado del encuentro. Si un jugador no realiza la grabación, perderá el derecho a reclamar el dinero en caso de que surja algún desacuerdo. Además, Underground Fut se reserva el derecho de subir o retransmitir los partidos a través de su cuenta de Twitch.
 
 🇬🇧
-18+ only
-Recording required
-No recording → no claim
-Matches may be streamed
-
-Matchmaking:
-Telegram + bot required
-
-Payments:
-No fraud
-Pay before play
-Validation up to 12h
+General Rules
+The Underground Fut Community is strictly for people over 18 years old. Both players must record all matches, as recordings are the only valid proof in case of disputes. If a player does not record, they lose the right to claim any money. Underground Fut reserves the right to stream matches on Twitch.
 """
 
-RULES_2 = """📜 REGLAS DE PARTIDO
+RULES_2 = """📜 EMPAREJAMIENTO Y PAGOS
 
 🇪🇸
-Amistoso online
-6 min partes
-Sin empate
-Solo Ultimate Team
-Sin hacks
-1 vs 1 obligatorio
+Reglas de Emparejamiento en Telegram
+Para participar, cada jugador debe tener usuario en Telegram (@usuario) y activar el bot @Futelite_bot.
 
-Tiempo:
-15 min contacto
-1h jugar
-
----
+Reglas de Pago
+Prohibido tener varias cuentas o pactar partidos. El sistema detecta fraude. Cualquier intento supondrá expulsión inmediata y pérdida de saldo. El pago debe realizarse antes de jugar. El dinero queda retenido hasta validación y se paga en máximo 12h.
 
 🇬🇧
-Online friendly
-6 min halves
-No draws
-Ultimate Team only
-No hacks
-1v1 only
+Matchmaking & Payments
+Players must have a Telegram username and activate the bot @Futelite_bot.
+
+Multiple accounts and match fixing are forbidden. Fraud leads to immediate ban and loss of funds. Payment must be made before playing. Funds are held until validation (max 12h).
+"""
+
+RULES_3 = """📜 PARTIDOS, DESCONECIONES Y FAIR PLAY
+
+🇪🇸
+Reglas de Partido
+Modo amistoso online, 6 min por parte, sin empate (prórroga y penaltis). Solo Ultimate Team. Prohibido sliders, hacks o manipulación. Solo 1vs1. Prohibido perder tiempo.
+
+Tiempo:
+15 min para contactar
+1h para jugar
+
+Desconexiones:
+Si pierde → pierde
+Si gana → repetir
+Empate → repetir
+Abandono voluntario → pierde
+
+Fair Play:
+Prohibido insultar, usar bugs o abandonar.
+
+🇬🇧
+Match Rules
+Online friendly mode, 6 min halves, no draws (extra time + penalties). Ultimate Team only. No sliders/hacks. Strict 1v1. No time wasting.
 
 Time:
 15 min contact
-1h play
-"""
+1h to play
 
-RULES_3 = """📜 FAIR PLAY
-
-🇪🇸
-Desconexión:
-Pierde el que iba perdiendo
-Si ganaba → repetir
-
-Voluntaria → pierde
-
-Prohibido:
-Insultos
-Bugs
-Abandonar
-
----
-
-🇬🇧
-Disconnect:
-Losing player loses
+Disconnects:
+Losing player disconnect → loss
 Winning → replay
+Draw → replay
+Quit → loss
 
-Voluntary quit → loss
-
-No:
-Insults
-Exploits
-Quit
+Fair Play:
+No insults, exploits or quitting.
 """
 
 # ================= NUEVO USUARIO =================
@@ -153,16 +126,14 @@ async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb = [[InlineKeyboardButton("👉 Activar Bot", url=BOT_LINK)]]
 
         await update.message.reply_text(
-            f"👋 Bienvenido {get_name(user)}\n\n"
-            "Pulsa el botón y escribe /start\n\n"
-            "Click and press /start",
+            f"👋 Bienvenido {get_name(user)}\n\nPulsa el botón y escribe /start",
             reply_markup=InlineKeyboardMarkup(kb)
         )
 
         try:
             await context.bot.send_message(
                 user.id,
-                f"👉 Activa el bot:\n{BOT_LINK}\n/start"
+                f"👉 Activa el bot aquí:\n{BOT_LINK}\nEscribe /start"
             )
         except:
             pass
@@ -182,14 +153,11 @@ async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text(RULES_2)
     await q.message.reply_text(RULES_3)
 
-    await q.message.reply_text(
-        "✅ Ya puedes jugar\n\nVe al grupo y escribe PLAY\n\nYou can play now"
-    )
+    await q.message.reply_text("✅ Ya puedes jugar. Ve al grupo y escribe PLAY")
 
 # ================= PLAY =================
 
 async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     kb = [
         [InlineKeyboardButton("5€", callback_data="p5"), InlineKeyboardButton("10€", callback_data="p10")],
         [InlineKeyboardButton("20€", callback_data="p20"), InlineKeyboardButton("50€", callback_data="p50")],
@@ -216,8 +184,7 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     user.id,
-                    f"💳 Debes ingresar {amount}€:\n{PAYPAL_LINK}\n\n"
-                    f"Send {amount}€ here"
+                    f"💳 Debes ingresar {amount}€ aquí:\n{PAYPAL_LINK}"
                 )
 
                 await q.message.reply_text("💳 Revisa tu privado para pagar")
@@ -226,10 +193,6 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await q.message.reply_text(f"Abre el bot primero:\n{BOT_LINK}")
 
             return
-
-    if user.id in user_match:
-        await q.message.reply_text("Ya estás en partida")
-        return
 
     queue[amount].append(user)
     await q.message.reply_text("⏳ En cola")
@@ -276,7 +239,7 @@ async def autorizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         user.id,
-        f"✅ Autorizado Play {amount}\n\nAuthorized Play {amount}"
+        f"✅ Autorizado Play {amount}"
     )
 
     await update.message.reply_text("OK autorizado")
@@ -308,7 +271,7 @@ async def win(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await context.bot.send_message(
                 GROUP_ID,
-                f"🏆 Ganador: {get_name(winner)}"
+                f"🏆 Ganador: {get_name(winner)} 🎉"
             )
         else:
             await context.bot.send_message(GROUP_ID, "⚠️ DISPUTA")
