@@ -249,6 +249,9 @@ async def autorizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         user.id,
         f"✅ Autorizado Play {amount}"
+        await update.message.reply_text(
+    f"✅ {get_name(user)} autorizado para jugar {amount}€"
+)
     )
 
     await update.message.reply_text("OK autorizado")
