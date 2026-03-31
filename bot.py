@@ -29,129 +29,29 @@ match_id_counter = 1
 def get_name(user):
     return f"@{user.username}" if user.username else user.first_name
 
-# ================= REGLAS (DIVIDIDAS) =================
+# ================= MENSAJES =================
 
-RULES_1 = """📜 REGLAMENTO UNDERGROUND FUT
+WELCOME_GROUP = """👋 Bienvenido
 
-🇪🇸 ESPAÑOL
+🇪🇸 Es obligatorio activar el bot:
+👉 https://t.me/Futelite_bot
+👉 Escribe /start
 
-General
-La Comunidad Underground Fut está reservada exclusivamente para personas mayores de 18 años. Es fundamental que ambos participantes graben todos los partidos, ya que la grabación será el único elemento válido en caso de discrepancia sobre el resultado del encuentro. Si un jugador no realiza la grabación, perderá el derecho a reclamar el dinero en caso de desacuerdo. Underground Fut puede retransmitir los partidos en Twitch.
-
-Reglas de Emparejamiento
-Cada jugador debe tener usuario en Telegram (@usuario) y activar el bot @Futelite_bot.
-
-Reglas de Pago
-Prohibido tener múltiples cuentas o pactar partidos. Fraude = expulsión + pérdida total del saldo.
-El pago debe hacerse antes del emparejamiento. El dinero queda retenido hasta validación (máx 12h).
-
----
-
-🇬🇧 ENGLISH
-
-General
-The Underground Fut Community is strictly for users over 18 years old. Matches must be recorded. Recording is the only valid proof in disputes. If not recorded, the player loses claim rights. Matches may be streamed on Twitch.
-
-Matchmaking Rules
-Users must have a Telegram username (@user) and activate the bot @Futelite_bot.
-
-Payment Rules
-Multiple accounts or arranged matches are strictly forbidden. Fraud = ban + loss of funds.
-Payments must be done before matchmaking. Funds are held until validation (max 12h).
-"""
-
-RULES_2 = """📜 REGLAS DE PARTIDO / MATCH RULES
-
-🇪🇸 ESPAÑOL
-
-Los partidos se juegan en amistoso online con configuración por defecto.
-Duración: 6 minutos por parte.
-No se permiten empates (prórroga + penaltis).
-Solo equipos Ultimate Team.
-
-Prohibido:
-- Sliders o hándicaps
-- Jugar en equipo (solo 1vs1)
-- Perder tiempo intencionadamente
-
-⏱ Tiempo:
-15 min para contactar
-1 hora para jugar
-
----
-
-🇬🇧 ENGLISH
-
-Matches are played as online friendlies with default settings.
-6 minutes per half.
-No draws allowed (extra time + penalties).
-Only Ultimate Team squads allowed.
-
-Forbidden:
-- Sliders or handicaps
-- Playing with multiple players
-- Time wasting
-
-⏱ Time:
-15 min to contact
-1 hour to play
-"""
-
-RULES_3 = """📜 DESCONEXIONES Y FAIR PLAY
-
-🇪🇸 ESPAÑOL
-
-Desconexión involuntaria:
-- Pierde quien iba perdiendo
-- Si iba ganando, se repite
-- Empate → reinicio
-- Con rojas → gana quien tenga más jugadores
-
-Desconexión voluntaria:
-- Victoria para el rival
-
-Fair Play:
-- Prohibido insultar
-- Prohibido bugs
-- Prohibido perder tiempo
-- Prohibido abandonar
-
----
-
-🇬🇧 ENGLISH
-
-Disconnections:
-
-Unintentional:
-- Losing player loses
-- If winning → replay
-- Draw → restart
-- Red cards → player with more players wins
-
-Voluntary:
-- Opponent wins
-
-Fair Play:
-- No insults
-- No exploits
-- No time wasting
-- No rage quit
+🇬🇧 You must activate the bot:
+👉 https://t.me/Futelite_bot
+👉 Type /start
 """
 
 WELCOME_PRIVATE = """👋 Bienvenido / Welcome
 
-✅ Ya estás listo para jugar
+🇪🇸
+1. Ve al grupo
+2. Escribe PLAY
+3. Elige cantidad
+4. Espera rival
+5. Habla por privado
 
-👉 Ahora debes:
-1. Ir al grupo
-2. Escribir: PLAY
-3. Elegir cantidad
-4. Esperar rival
-5. Hablar por privado
-
----
-
-👉 Now:
+🇬🇧
 1. Go to group
 2. Type PLAY
 3. Choose amount
@@ -159,23 +59,16 @@ WELCOME_PRIVATE = """👋 Bienvenido / Welcome
 5. Contact privately
 """
 
+QUEUE_MSG = """⏳ Estás en cola de emparejamiento
+
+🇬🇧 You are in matchmaking queue
+"""
+
 # ================= NUEVO USUARIO =================
 
 async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for user in update.message.new_chat_members:
-        name = get_name(user)
-
-        await update.message.reply_text(
-f"""👋 Bienvenido {name}
-
-⚠️ IMPORTANTE
-
-👉 https://t.me/{BOT_USERNAME}
-👉 Pulsa START
-
-❗ Sin esto no puedes jugar
-"""
-        )
+        await update.message.reply_text(WELCOME_GROUP)
 
 # ================= START =================
 
@@ -183,19 +76,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     users_started.add(user.id)
 
-    keyboard = [[InlineKeyboardButton("✅ Aceptar reglas", callback_data="accept")]]
-
-    await update.message.reply_text(RULES_1, reply_markup=InlineKeyboardMarkup(keyboard))
-
-# ================= ACCEPT =================
-
-async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-
-    await q.message.reply_text(RULES_2)
-    await q.message.reply_text(RULES_3)
-    await q.message.reply_text(WELCOME_PRIVATE)
+    await update.message.reply_text(WELCOME_PRIVATE)
 
 # ================= PLAY =================
 
@@ -203,7 +84,9 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     if user.id not in users_started:
-        await update.message.reply_text(f"⚠️ Activa el bot: https://t.me/{BOT_USERNAME}")
+        await update.message.reply_text(
+            "⚠️ Activa el bot primero / Activate bot first\n👉 https://t.me/Futelite_bot\nEscribe /start"
+        )
         return
 
     kb = [
@@ -212,7 +95,7 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("100€", callback_data="p100")]
     ]
 
-    await update.message.reply_text("Selecciona partido", reply_markup=InlineKeyboardMarkup(kb))
+    await update.message.reply_text("Selecciona partido / Select match", reply_markup=InlineKeyboardMarkup(kb))
 
 # ================= MATCH =================
 
@@ -226,14 +109,12 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     amount = int(q.data.replace("p", ""))
 
     if user.id in user_match:
-        await q.answer("Ya estás en partida", show_alert=True)
-        return
-
-    if user in queue[amount]:
-        await q.answer("Ya en cola", show_alert=True)
+        await q.answer("Ya estás en partida / Already in match", show_alert=True)
         return
 
     queue[amount].append(user)
+
+    await q.message.reply_text(QUEUE_MSG)
 
     if len(queue[amount]) >= 2:
         p1 = queue[amount].pop(0)
@@ -246,7 +127,12 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         match_id = match_id_counter
         match_id_counter += 1
 
-        matches[match_id] = {"p1": p1, "p2": p2, "amount": amount, "reports": {}, "state": "playing"}
+        matches[match_id] = {
+            "p1": p1,
+            "p2": p2,
+            "amount": amount,
+            "reports": {},
+        }
 
         user_match[p1.id] = match_id
         user_match[p2.id] = match_id
@@ -255,11 +141,9 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         name2 = get_name(p2)
 
         kb = [[
-            InlineKeyboardButton(f"Gana {name1}", callback_data=f"win_{match_id}_{p1.id}"),
-            InlineKeyboardButton(f"Gana {name2}", callback_data=f"win_{match_id}_{p2.id}")
-        ],
-        [InlineKeyboardButton("⚠️ Disputa", callback_data=f"draw_{match_id}")]
-        ]
+            InlineKeyboardButton(f"🏆 Gana {name1}", callback_data=f"win_{match_id}_{p1.id}"),
+            InlineKeyboardButton(f"🏆 Gana {name2}", callback_data=f"win_{match_id}_{p2.id}")
+        ]]
 
         await context.bot.send_message(
             GROUP_ID,
@@ -283,8 +167,12 @@ async def win(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not match:
         return
 
+    if user.id not in [match["p1"].id, match["p2"].id]:
+        await q.answer("No puedes votar / Not your match", show_alert=True)
+        return
+
     if user.id in match["reports"]:
-        await q.answer("Ya reportado", show_alert=True)
+        await q.answer("Ya reportado / Already reported", show_alert=True)
         return
 
     match["reports"][user.id] = winner_id
@@ -298,11 +186,20 @@ async def win(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await context.bot.send_message(
                 GROUP_ID,
-                f"🏆 {get_name(winner_user)} gana {match['amount']}€"
+                f"🏆 Felicidades {get_name(winner_user)}!\n"
+                f"Has ganado {match['amount']}€\n\n"
+                f"🏆 Congratulations {get_name(winner_user)}!\n"
+                f"You won {match['amount']}€"
             )
         else:
-            await context.bot.send_message(GROUP_ID, "⚠️ DISPUTA")
-            await context.bot.send_message(ADMIN_ID, f"Disputa match {match_id}")
+            await context.bot.send_message(
+                GROUP_ID,
+                "⚠️ DISPUTA / DISPUTE"
+            )
+            await context.bot.send_message(
+                ADMIN_ID,
+                f"⚠️ Disputa en match {match_id}"
+            )
 
         del user_match[match["p1"].id]
         del user_match[match["p2"].id]
@@ -318,9 +215,8 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)^play"), play))
     app.add_handler(CallbackQueryHandler(select, pattern="^p"))
     app.add_handler(CallbackQueryHandler(win, pattern="^win_"))
-    app.add_handler(CallbackQueryHandler(accept, pattern="accept"))
 
-    print("BOT FINAL FUNCIONANDO")
+    print("BOT FUNCIONANDO CORRECTAMENTE")
     app.run_polling()
 
 if __name__ == "__main__":
