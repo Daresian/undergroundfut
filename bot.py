@@ -14,7 +14,7 @@ TOKEN = os.getenv("BOT_TOKEN")
 
 GROUP_ID = -1003882941029
 ADMIN_ID = 13493800
-BOT_USERNAME = "Futelite_bot"
+PAYPAL_LINK = "https://paypal.me/bucefalo74"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -22,61 +22,19 @@ queue = {5: [], 10: [], 20: [], 50: [], 100: []}
 matches = {}
 user_match = {}
 users_started = set()
+authorized_users = {}  # user_id: amount autorizado
 match_id_counter = 1
-
-# ================= UTIL =================
 
 def get_name(user):
     return f"@{user.username}" if user.username else user.first_name
 
-# ================= MENSAJES =================
-
-WELCOME_GROUP = """👋 Bienvenido
-
-🇪🇸 Es obligatorio activar el bot:
-👉 https://t.me/Futelite_bot
-👉 Escribe /start
-
-🇬🇧 You must activate the bot:
-👉 https://t.me/Futelite_bot
-👉 Type /start
-"""
-
-WELCOME_PRIVATE = """👋 Bienvenido / Welcome
-
-🇪🇸
-1. Ve al grupo
-2. Escribe PLAY
-3. Elige cantidad
-4. Espera rival
-5. Habla por privado
-
-🇬🇧
-1. Go to group
-2. Type PLAY
-3. Choose amount
-4. Wait opponent
-5. Contact privately
-"""
-
-QUEUE_MSG = """⏳ Estás en cola de emparejamiento
-
-🇬🇧 You are in matchmaking queue
-"""
-
-# ================= NUEVO USUARIO =================
-
-async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for user in update.message.new_chat_members:
-        await update.message.reply_text(WELCOME_GROUP)
-
 # ================= START =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    users_started.add(user.id)
+    users_started.add(update.effective_user.id)
 
-    await update.message.reply_text(WELCOME_PRIVATE)
+    kb = [[InlineKeyboardButton("✅ Aceptar reglas / Accept rules", callback_data="accept")]]
+    await update.message.reply_text("📜 Reglas enviadas arriba", reply_markup=InlineKeyboardMarkup(kb))
 
 # ================= PLAY =================
 
@@ -84,9 +42,7 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     if user.id not in users_started:
-        await update.message.reply_text(
-            "⚠️ Activa el bot primero / Activate bot first\n👉 https://t.me/Futelite_bot\nEscribe /start"
-        )
+        await update.message.reply_text("⚠️ Haz /start primero en privado")
         return
 
     kb = [
@@ -95,9 +51,9 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("100€", callback_data="p100")]
     ]
 
-    await update.message.reply_text("Selecciona partido / Select match", reply_markup=InlineKeyboardMarkup(kb))
+    await update.message.reply_text("Selecciona / Select", reply_markup=InlineKeyboardMarkup(kb))
 
-# ================= MATCH =================
+# ================= SELECCIÓN =================
 
 async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global match_id_counter
@@ -108,48 +64,88 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = q.from_user
     amount = int(q.data.replace("p", ""))
 
+    # ADMIN puede saltarse pago (modo test)
+    if user.id != ADMIN_ID:
+
+        # NO autorizado → enviar a pagar
+        if authorized_users.get(user.id) != amount:
+            try:
+                await context.bot.send_message(
+                    user.id,
+                    f"💳 Debes ingresar {amount}€ aquí:\n{PAYPAL_LINK}\n\n"
+                    f"🇬🇧 You must send {amount}€ here:\n{PAYPAL_LINK}"
+                )
+            except:
+                await q.answer("Abre privado con el bot", show_alert=True)
+                return
+
+            await q.answer("Debes pagar primero", show_alert=True)
+            return
+
+    # YA AUTORIZADO → entra en cola
     if user.id in user_match:
-        await q.answer("Ya estás en partida / Already in match", show_alert=True)
+        return
+
+    if any(user in ql for ql in queue.values()):
         return
 
     queue[amount].append(user)
 
-    await q.message.reply_text(QUEUE_MSG)
+    await q.message.reply_text("⏳ En cola / In queue")
 
     if len(queue[amount]) >= 2:
         p1 = queue[amount].pop(0)
         p2 = queue[amount].pop(0)
 
-        if p1.id == p2.id:
-            queue[amount].append(p1)
-            return
-
         match_id = match_id_counter
         match_id_counter += 1
 
-        matches[match_id] = {
-            "p1": p1,
-            "p2": p2,
-            "amount": amount,
-            "reports": {},
-        }
-
+        matches[match_id] = {"p1": p1, "p2": p2, "amount": amount, "reports": {}}
         user_match[p1.id] = match_id
         user_match[p2.id] = match_id
 
-        name1 = get_name(p1)
-        name2 = get_name(p2)
-
         kb = [[
-            InlineKeyboardButton(f"🏆 Gana {name1}", callback_data=f"win_{match_id}_{p1.id}"),
-            InlineKeyboardButton(f"🏆 Gana {name2}", callback_data=f"win_{match_id}_{p2.id}")
-        ]]
+            InlineKeyboardButton(f"🏆 {get_name(p1)}", callback_data=f"win_{match_id}_{p1.id}"),
+            InlineKeyboardButton(f"🏆 {get_name(p2)}", callback_data=f"win_{match_id}_{p2.id}")
+        ],
+        [InlineKeyboardButton("⚠️ Disputa", callback_data=f"draw_{match_id}")]
+        ]
 
         await context.bot.send_message(
             GROUP_ID,
-            f"🔥 MATCH {amount}€\n{name1} vs {name2}",
+            f"🔥 MATCH {amount}€\n{get_name(p1)} vs {get_name(p2)}",
             reply_markup=InlineKeyboardMarkup(kb)
         )
+
+# ================= AUTORIZAR (ADMIN) =================
+
+async def autorizar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    try:
+        amount = int(context.args[0])
+        username = context.args[1].replace("@", "")
+    except:
+        await update.message.reply_text("Uso: /autorizar 10 @usuario")
+        return
+
+    # buscar usuario en chat
+    for u in users_started:
+        # no tenemos mapping username→id directo, así que simplificamos
+        pass
+
+    # solución práctica: responder a mensaje del usuario
+    if update.message.reply_to_message:
+        user = update.message.reply_to_message.from_user
+        authorized_users[user.id] = amount
+
+        await context.bot.send_message(
+            user.id,
+            f"✅ Autorizado Play {amount}\n\n🇬🇧 Authorized Play {amount}"
+        )
+
+        await update.message.reply_text("OK autorizado")
 
 # ================= RESULTADO =================
 
@@ -167,39 +163,20 @@ async def win(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not match:
         return
 
-    if user.id not in [match["p1"].id, match["p2"].id]:
-        await q.answer("No puedes votar / Not your match", show_alert=True)
-        return
-
-    if user.id in match["reports"]:
-        await q.answer("Ya reportado / Already reported", show_alert=True)
-        return
-
     match["reports"][user.id] = winner_id
 
     if len(match["reports"]) == 2:
         votes = list(match["reports"].values())
 
         if votes[0] == votes[1]:
-            winner = votes[0]
-            winner_user = match["p1"] if match["p1"].id == winner else match["p2"]
+            winner_user = match["p1"] if match["p1"].id == votes[0] else match["p2"]
 
             await context.bot.send_message(
                 GROUP_ID,
-                f"🏆 Felicidades {get_name(winner_user)}!\n"
-                f"Has ganado {match['amount']}€\n\n"
-                f"🏆 Congratulations {get_name(winner_user)}!\n"
-                f"You won {match['amount']}€"
+                f"🏆 Ganador: {get_name(winner_user)}"
             )
         else:
-            await context.bot.send_message(
-                GROUP_ID,
-                "⚠️ DISPUTA / DISPUTE"
-            )
-            await context.bot.send_message(
-                ADMIN_ID,
-                f"⚠️ Disputa en match {match_id}"
-            )
+            await context.bot.send_message(GROUP_ID, "⚠️ DISPUTA")
 
         del user_match[match["p1"].id]
         del user_match[match["p2"].id]
@@ -211,12 +188,11 @@ def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_user))
+    app.add_handler(CommandHandler("autorizar", autorizar))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)^play"), play))
     app.add_handler(CallbackQueryHandler(select, pattern="^p"))
     app.add_handler(CallbackQueryHandler(win, pattern="^win_"))
 
-    print("BOT FUNCIONANDO CORRECTAMENTE")
     app.run_polling()
 
 if __name__ == "__main__":
