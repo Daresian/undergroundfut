@@ -1,3 +1,24 @@
+import logging
+import os
+import sqlite3
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    CallbackQueryHandler,
+    MessageHandler,
+    filters,
+)
+
+TOKEN = os.getenv("BOT_TOKEN")
+
+GROUP_ID = -1003882941029
+ADMIN_ID = 13493800
+BOT_LINK = "https://t.me/Futelite_bot"
+PAYPAL_LINK = "https://paypal.me/bucefalo74"
+
+logging.basicConfig(level=logging.INFO)
 
 # ================= DATABASE =================
 
