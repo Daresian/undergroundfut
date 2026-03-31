@@ -24,40 +24,20 @@ user_match = {}
 users_started = set()
 match_id_counter = 1
 
-# ================== MENSAJES ==================
+# ================= UTIL =================
 
-WELCOME_PRIVATE = """👋 Bienvenido a Underground Fut
+def get_name(user):
+    return f"@{user.username}" if user.username else user.first_name
 
-⚽ Cómo jugar / How to play:
-
-1. Escribe PLAY en el grupo
-2. Elige cantidad
-3. Espera rival
-4. Contacta por privado
-5. Juega
-6. Reporta ganador
-
-⏱ 15 min contacto / 1h juego
-
-¡Ya puedes jugar!
-"""
-
-RULES = """📜 REGLAS / RULES
-
-REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT Reglamento General La Comunidad Underground Fut está reservada exclusivamente para personas mayores de 18 años. Es fundamental que ambos participantes graben todos los partidos, ya que la grabación será el único elemento válido en caso de discrepancia sobre el resultado del encuentro. Si un jugador no realiza la grabación, perderá el derecho a reclamar el dinero en caso de que surja algún desacuerdo. Además, Underground Fut se reserva el derecho de subir o retransmitir los partidos a través de su cuenta de Twitch. Reglas de Emparejamiento en Telegram Para participar en los emparejamientos, cada jugador debe disponer de un usuario en Telegram (en formato @usuario) y activar el bot correspondiente. Esto es imprescindible para acceder a los partidos y ser emparejado correctamente.
-
-Reglas de Pago Está terminantemente prohibido tener varias cuentas y pactar partidas entre ellas. El sistema monitoriza patrones de juego para detectar posibles fraudes. Cualquier intento de engaño supondrá la expulsión inmediata de la comunidad y la pérdida de todo el saldo ingresado. El pago debe realizarse antes de solicitar el emparejamiento, permitiendo a cada jugador añadir la cantidad que desee a su monedero. El dinero jugado permanecerá retenido hasta la validación del resultado, y el premio será autorizado y abonado tras la validación, en un plazo máximo de 12 horas.
-
-Está prohibida la utilización de sliders y hándicaps...
-"""
-
-# ================== NUEVO USUARIO ==================
+# ================= NUEVO USUARIO =================
 
 async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for user in update.message.new_chat_members:
 
+        name = get_name(user)
+
         await update.message.reply_text(
-f"""👋 Bienvenido @{user.username}
+f"""👋 Bienvenido {name}
 
 ⚠️ IMPORTANTE / IMPORTANT
 
@@ -74,11 +54,10 @@ To play you MUST start the bot first.
 """
         )
 
-# ================== START ==================
+# ================= START =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-
     users_started.add(user.id)
 
     keyboard = [[InlineKeyboardButton("✅ Aceptar reglas / Accept rules", callback_data="accept")]]
@@ -88,7 +67,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-# ================== ACCEPT ==================
+# ================= ACCEPT =================
 
 async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -96,7 +75,7 @@ async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await q.message.reply_text(WELCOME_PRIVATE)
 
-# ================== PLAY ==================
+# ================= PLAY =================
 
 async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -120,7 +99,7 @@ f"""⚠️ Debes activar el bot primero
 
     await update.message.reply_text("Selecciona partido / Select match", reply_markup=InlineKeyboardMarkup(kb))
 
-# ================== MATCH ==================
+# ================= MATCH =================
 
 async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global match_id_counter
@@ -132,7 +111,7 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     amount = int(q.data.replace("p", ""))
 
     if user.id in user_match:
-        await q.answer("Ya estás en partida / Already in match", show_alert=True)
+        await q.answer("Ya estás en partida", show_alert=True)
         return
 
     queue[amount].append(user)
@@ -154,28 +133,30 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_match[p1.id] = match_id
         user_match[p2.id] = match_id
 
+        name1 = get_name(p1)
+        name2 = get_name(p2)
+
         kb = [[
-            InlineKeyboardButton(f"Gana @{p1.username}", callback_data=f"win_{match_id}_{p1.id}"),
-            InlineKeyboardButton(f"Gana @{p2.username}", callback_data=f"win_{match_id}_{p2.id}")
+            InlineKeyboardButton(f"Gana {name1}", callback_data=f"win_{match_id}_{p1.id}"),
+            InlineKeyboardButton(f"Gana {name2}", callback_data=f"win_{match_id}_{p2.id}")
         ]]
 
         await context.bot.send_message(
             GROUP_ID,
             f"""🔥 MATCH {amount}€
 
-@{p1.username} vs @{p2.username}
+{name1} vs {name2}
 
-📩 Contactad por privado / Contact each other privately
-"""
-            ,
+📩 Hablad por privado / Contact privately
+""",
             reply_markup=InlineKeyboardMarkup(kb)
         )
 
-# ================== RESULTADO ==================
+# ================= RESULTADO =================
 
 async def win(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer("Resultado enviado / Result submitted")
+    await q.answer("Resultado enviado")
 
     user = q.from_user
     _, match_id, winner_id = q.data.split("_")
@@ -185,7 +166,9 @@ async def win(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     match = matches.get(match_id)
 
-    # anti trampas: solo jugadores del match
+    if not match:
+        return
+
     if user.id not in [match["p1"].id, match["p2"].id]:
         return
 
@@ -197,35 +180,41 @@ async def win(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if votes[0] == votes[1]:
             winner = votes[0]
 
-            username = match["p1"].username if match["p1"].id == winner else match["p2"].username
+            winner_user = match["p1"] if match["p1"].id == winner else match["p2"]
+            name = get_name(winner_user)
 
             await context.bot.send_message(
                 GROUP_ID,
-                f"""🏆 @{username} gana {match['amount']}€
+                f"""🏆 {name} gana {match['amount']}€
 
-💰 Pago en proceso / Payment processing"""
+💰 Pago en proceso"""
             )
         else:
-            await context.bot.send_message(
-                GROUP_ID,
-                "⚠️ DISPUTA DETECTADA / DISPUTE DETECTED"
-            )
+            await context.bot.send_message(GROUP_ID, "⚠️ DISPUTA DETECTADA")
 
             await context.bot.send_message(
                 ADMIN_ID,
                 f"""🚨 DISPUTA
 
 Match {match_id}
-@{match['p1'].username} vs @{match['p2'].username}
 """
             )
 
-        # limpiar
         del user_match[match["p1"].id]
         del user_match[match["p2"].id]
         del matches[match_id]
 
-# ================== MAIN ==================
+# ================= TEXTOS =================
+
+WELCOME_PRIVATE = """👋 Bienvenido
+
+Ya puedes usar PLAY en el grupo
+"""
+
+RULES = """📜 REGLAS (exactas aquí)
+"""
+
+# ================= MAIN =================
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -237,7 +226,7 @@ def main():
     app.add_handler(CallbackQueryHandler(win, pattern="^win_"))
     app.add_handler(CallbackQueryHandler(accept, pattern="accept"))
 
-    print("BOT PRO ACTIVO")
+    print("BOT LIMPIO ACTIVO")
     app.run_polling()
 
 if __name__ == "__main__":
