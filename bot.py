@@ -183,9 +183,15 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             try:
                 await context.bot.send_message(
-                    user.id,
-                    f"💳 Debes ingresar {amount}€ aquí:\n{PAYPAL_LINK}"
-                )
+    user.id,
+    f"💳 Debes ingresar {amount}€ en:\n{PAYPAL_LINK}\n\n"
+    f"⚠️ MUY IMPORTANTE:\n"
+    f"Indica tu usuario de Telegram en el pago:\n"
+    f"{get_name(user)}\n\n"
+    f"🇬🇧 IMPORTANT:\n"
+    f"Include your Telegram username in the payment:\n"
+    f"{get_name(user)}"
+)
 
                 await q.message.reply_text(
     f"💳 {get_name(user)} quiere jugar un partido de {amount}€\n"
