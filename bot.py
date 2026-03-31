@@ -187,7 +187,10 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"💳 Debes ingresar {amount}€ aquí:\n{PAYPAL_LINK}"
                 )
 
-                await q.message.reply_text("💳 Revisa tu privado para pagar")
+                await q.message.reply_text(
+    f"💳 {get_name(user)} quiere jugar un partido de {amount}€\n"
+    "Revisa tu privado para pagar"
+)
 
             except:
                 await q.message.reply_text(f"Abre el bot primero:\n{BOT_LINK}")
