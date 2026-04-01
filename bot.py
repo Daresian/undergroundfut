@@ -2,12 +2,10 @@ import logging
 import os
 import sqlite3
 from datetime import datetime, timedelta
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import *
 
 TOKEN = os.getenv("BOT_TOKEN")
-
 GROUP_ID = -1003882941029
 ADMIN_ID = 13493800
 PAYPAL_LINK = "https://paypal.me/bucefalo74"
@@ -15,7 +13,6 @@ PAYPAL_LINK = "https://paypal.me/bucefalo74"
 logging.basicConfig(level=logging.INFO)
 
 # ================= DB =================
-
 conn = sqlite3.connect("bot.db", check_same_thread=False)
 cursor = conn.cursor()
 
@@ -43,13 +40,12 @@ CREATE TABLE IF NOT EXISTS matches (
 conn.commit()
 
 # ================= MEMORIA =================
-
 queue = {5: [], 10: [], 20: [], 50: [], 100: []}
 user_cache = {}
 user_match = {}
 match_id_counter = 1
 
-# ================= REGLAS (NO TOCADAS) =================
+# ================= REGLAS =================
 RULES = """REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
 
 🇪🇸 ESPAÑOL
@@ -128,37 +124,29 @@ Fair Play
 """
 
 # ================= BIENVENIDA =================
-
 async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for user in update.message.new_chat_members:
 
-        # Mensaje en grupo
         await context.bot.send_message(
             chat_id=GROUP_ID,
             text=f"""👋 Bienvenido / Welcome {user.mention_html()}
-
 👉 Te he enviado las reglas por privado
 👉 Check your private messages
 
 ⚠️ Si no las ves, inicia el bot:
 ⚠️ If you don't see it, start the bot:
-
 https://t.me/Futelite_bot""",
             parse_mode="HTML"
         )
 
-        # Intento de mensaje privado con botón
         try:
             kb = [[InlineKeyboardButton("✅ Acepto / I Accept", callback_data="accept")]]
-
             await context.bot.send_message(
                 chat_id=user.id,
                 text=RULES,
                 reply_markup=InlineKeyboardMarkup(kb)
             )
-
         except:
-            # Si no ha iniciado el bot
             await context.bot.send_message(
                 chat_id=GROUP_ID,
                 text=f"⚠️ {user.mention_html()} NO ha iniciado el bot privado",
@@ -166,7 +154,6 @@ https://t.me/Futelite_bot""",
             )
 
 # ================= START =================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [[InlineKeyboardButton("✅ Acepto / I Accept", callback_data="accept")]]
     await update.message.reply_text(RULES, reply_markup=InlineKeyboardMarkup(kb))
@@ -174,7 +161,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
-
     uid = q.from_user.id
 
     cursor.execute("INSERT OR IGNORE INTO users(user_id) VALUES (?)", (uid,))
@@ -184,7 +170,6 @@ async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.edit_text("✅ Reglas aceptadas / Rules accepted")
 
 # ================= UTILS =================
-
 def get_name(uid):
     u = user_cache.get(uid)
     return f"@{u.username}" if u and u.username else str(uid)
@@ -195,7 +180,6 @@ def accepted(uid):
     return r and r[0] == 1
 
 # ================= MATCH =================
-
 async def try_match(amount, context):
     global match_id_counter
 
@@ -218,14 +202,16 @@ async def try_match(amount, context):
         user_match[p2] = match_id
 
         msg = f"""⚔️ MATCH {amount}€
-
 {get_name(p1)} vs {get_name(p2)}
 
 📩 Contacta por privado / Contact via DM
 ⏱ 15 min para coordinar
 ⏱ 1h para jugar
 
-/report win | /report lose"""
+👉 Reporta:
+ /report win
+ /report lose
+"""
 
         await context.bot.send_message(GROUP_ID, msg)
 
@@ -238,8 +224,7 @@ async def try_match(amount, context):
                     f"⚠️ {get_name(p)} NO ha iniciado el bot"
                 )
 
-# ================= REPORT =================
-
+# ================= REPORT PRO =================
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
@@ -249,8 +234,8 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) == 0:
         return
 
-    match_id = user_match[user.id]
     result = context.args[0]
+    match_id = user_match[user.id]
 
     cursor.execute("SELECT * FROM matches WHERE match_id=?", (match_id,))
     m = cursor.fetchone()
@@ -258,6 +243,7 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if m[6] != "playing":
         return
 
+    # Guardar resultado
     if user.id == m[1]:
         if m[4]: return
         cursor.execute("UPDATE matches SET r1=? WHERE match_id=?", (result, match_id))
@@ -267,31 +253,45 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn.commit()
 
+    # Verificar ambos reportes
     cursor.execute("SELECT r1,r2 FROM matches WHERE match_id=?", (match_id,))
     r1, r2 = cursor.fetchone()
 
     if r1 and r2:
+
+        # RESULTADO OK
         if r1 == r2:
             winner = m[1] if r1 == "win" else m[2]
 
             cursor.execute("UPDATE matches SET status='finished' WHERE match_id=?", (match_id,))
             conn.commit()
 
+            # LIMPIEZA
+            user_match.pop(m[1], None)
+            user_match.pop(m[2], None)
+
             await context.bot.send_message(
                 GROUP_ID,
-                f"🏆 GANADOR / WINNER: {get_name(winner)}"
+                f"""🏆 GANADOR / WINNER: {get_name(winner)}
+
+🎉 Felicidades!
+💰 Premio en proceso / Payment processing"""
             )
+
+        # DISPUTA
         else:
             cursor.execute("UPDATE matches SET status='dispute' WHERE match_id=?", (match_id,))
             conn.commit()
 
             await context.bot.send_message(
                 GROUP_ID,
-                "⚠️ DISPUTA / DISPUTE — Admin revisará"
+                f"""⚠️ DISPUTA / DISPUTE
+
+🛑 Admin revisará grabaciones
+🎥 Enviad pruebas por privado"""
             )
 
 # ================= PLAY =================
-
 async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_cache[user.id] = user
@@ -304,8 +304,10 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Ya estás en partida")
         return
 
-    kb = [[InlineKeyboardButton("5€", callback_data="p5"),
-           InlineKeyboardButton("10€", callback_data="p10")]]
+    kb = [
+        [InlineKeyboardButton("5€", callback_data="p5"),
+         InlineKeyboardButton("10€", callback_data="p10")]
+    ]
 
     await update.message.reply_text("Selecciona apuesta", reply_markup=InlineKeyboardMarkup(kb))
 
@@ -320,10 +322,10 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     queue[amount].append(user.id)
+
     await try_match(amount, context)
 
-# ================= ADMIN PRO =================
-
+# ================= ADMIN =================
 async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -356,10 +358,11 @@ async def forcewin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("UPDATE matches SET status='finished' WHERE match_id=?", (match_id,))
     conn.commit()
 
+    user_match.pop(winner, None)
+
     await update.message.reply_text("Ganador forzado")
 
-# ================= AUTO CONTROL TIEMPO =================
-
+# ================= AUTO CONTROL =================
 async def check_matches(context):
     now = datetime.utcnow()
 
@@ -381,7 +384,6 @@ async def check_matches(context):
                 )
 
 # ================= MAIN =================
-
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
