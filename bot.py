@@ -2,14 +2,7 @@ import logging
 import os
 import sqlite3
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-    CallbackQueryHandler,
-    MessageHandler,
-    filters,
-)
+from telegram.ext import *
 
 TOKEN = os.getenv("BOT_TOKEN")
 
@@ -31,33 +24,29 @@ CREATE TABLE IF NOT EXISTS users (
     authorized_amount INTEGER
 )
 """)
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS matches (
+    match_id INTEGER PRIMARY KEY,
+    p1 INTEGER,
+    p2 INTEGER,
+    amount INTEGER,
+    status TEXT,
+    r1 TEXT,
+    r2 TEXT
+)
+""")
 conn.commit()
 
 # ================= MEMORIA =================
 
 queue = {5: [], 10: [], 20: [], 50: [], 100: []}
-user_data_cache = {}
-matches = {}
-user_match = {}
+user_cache = {}
 user_in_queue = set()
+user_match = {}
 match_id_counter = 1
 
-def get_name(user_id):
-    user = user_data_cache.get(user_id)
-    if user:
-        return f"@{user.username}" if user.username else user.first_name
-    return f"user_{user_id}"
-
-def is_authorized(user_id, amount):
-    cursor.execute("SELECT authorized_amount FROM users WHERE user_id=?", (user_id,))
-    row = cursor.fetchone()
-    return row and row[0] == amount
-
-def authorize_user(user_id, amount):
-    cursor.execute("INSERT OR REPLACE INTO users VALUES (?,?)", (user_id, amount))
-    conn.commit()
-
-# ================= REGLAS EXACTAS =================
+# ================= REGLAS COMPLETAS =================
 
 RULES_1 = """📜 REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
 
@@ -67,24 +56,24 @@ La Comunidad Underground Fut está reservada exclusivamente para personas mayore
 
 🇬🇧
 General Rules
-The Underground Fut Community is strictly for people over 18 years old. It is mandatory that both players record all matches, as recordings are the only valid proof in case of disputes. If a player does not record, they lose the right to claim money. Underground Fut reserves the right to stream matches on Twitch.
+The Underground Fut Community is strictly for people over 18 years old. Both players must record all matches, as recordings are the only valid proof in case of disputes. If a player does not record, they lose the right to claim money. Underground Fut reserves the right to upload or stream matches on Twitch.
 """
 
-RULES_2 = """📜 REGLAS DE EMPAREJAMIENTO Y PAGOS
+RULES_2 = """📜 EMPAREJAMIENTO Y PAGOS
 
 🇪🇸
 Reglas de Emparejamiento en Telegram
-Para participar en los emparejamientos, cada jugador debe disponer de un usuario en Telegram (en formato @usuario) y activar el bot correspondiente @Futelite_bot . Esto es imprescindible para acceder a los partidos y ser emparejado correctamente.
+Para participar en los emparejamientos, cada jugador debe disponer de un usuario en Telegram (en formato @usuario) y activar el bot correspondiente @Futelite_bot. Esto es imprescindible para acceder a los partidos y ser emparejado correctamente.
 
 Reglas de Pago
 Está terminantemente prohibido tener varias cuentas y pactar partidas entre ellas. El sistema monitoriza patrones de juego para detectar posibles fraudes. Cualquier intento de engaño supondrá la expulsión inmediata de la comunidad y la pérdida de todo el saldo ingresado. El pago debe realizarse antes de solicitar el emparejamiento, permitiendo a cada jugador añadir la cantidad que desee a su monedero. El dinero jugado permanecerá retenido hasta la validación del resultado, y el premio será autorizado y abonado tras la validación, en un plazo máximo de 12 horas.
 
 🇬🇧
 Matchmaking Rules
-Each player must have a Telegram username (@username) and activate the bot @Futelite_bot.
+To participate, each player must have a Telegram username (@username) and activate the bot @Futelite_bot. This is mandatory to be matched correctly.
 
 Payment Rules
-Multiple accounts and match fixing are strictly prohibited. The system monitors behavior to detect fraud. Any attempt will result in a permanent ban and loss of funds. Payment must be completed before matchmaking. Funds remain locked until validation (max 12h).
+Multiple accounts and match fixing are strictly prohibited. The system monitors behavior to detect fraud. Any attempt will result in immediate ban and loss of all funds. Payment must be completed before matchmaking. Funds remain locked until the result is validated, and the prize will be released within a maximum of 12 hours.
 """
 
 RULES_3 = """📜 PARTIDOS, DESCONECTES Y FAIR PLAY
@@ -93,42 +82,104 @@ RULES_3 = """📜 PARTIDOS, DESCONECTES Y FAIR PLAY
 Reglas de Partido
 Los partidos se disputarán en la modalidad Partido Amistoso online, utilizando siempre la configuración por defecto del juego. No está permitido modificar los ajustes, y la duración será de 6 minutos por parte. Todos los partidos deben finalizar con una victoria; el empate no es un resultado válido, por lo que se debe jugar prórroga y penaltis si es necesario. Solo se pueden utilizar equipos Ultimate Team.
 
-Está prohibida la utilización de sliders y hándicaps. En caso de incumplimiento, el jugador será expulsado de la comunidad y perderá todo el dinero ingresado. Los partidos son exclusivamente 1 contra 1. Tampoco está permitida la pérdida manifiesta de tiempo mediante la posesión del balón.
+Está prohibida la utilización de sliders y hándicaps. En caso de incumplimiento, el jugador será expulsado de la comunidad y perderá todo el dinero ingresado. Los partidos son exclusivamente 1 contra 1. Tampoco está permitida la pérdida de tiempo mediante la posesión del balón.
 
 Tiempo para Jugar
 15 minutos para contactar
 1 hora para jugar
 
 Desconexiones
-Si pierde → pierde
-Si gana → repetir
-Empate → repetir
-Abandono → pierde
+Es obligatorio grabar.
+
+Desconexión Involuntaria
+- Si pierde → pierde
+- Si gana → repetir
+- Empate → repetir
+
+Desconexión Voluntaria
+- Abandono → pierde
 
 Fair Play
-Prohibido insultar, usar bugs o abandonar.
+Prohibido insultar, usar bugs o abandonar injustificadamente.
 
 🇬🇧
 Match Rules
-Online friendly match, default settings, 6 minutes per half. No draws allowed. Only Ultimate Team.
+Matches must be played as online friendlies using default settings. Each half is 6 minutes. No draws allowed (extra time/penalties required). Only Ultimate Team is allowed.
 
-No sliders or manipulation. Matches are strictly 1v1.
+Sliders and handicaps are strictly forbidden. Violations result in expulsion and loss of funds. Matches are strictly 1v1. Time wasting is not allowed.
 
 Time
 15 minutes to contact
 1 hour to play
 
 Disconnections
-Lose → lose
-Win → replay
-Draw → replay
-Quit → lose
+Recording is mandatory.
+
+Unintentional Disconnect:
+- Losing player → loses
+- Winning player → replay
+- Draw → replay
+
+Intentional Disconnect:
+- Quit → loss
 
 Fair Play
-No insults, bugs or quitting.
+No insults, no bugs, no unjustified quitting.
 """
 
-# ================= MATCH =================
+# ================= UTILS =================
+
+def get_name(uid):
+    u = user_cache.get(uid)
+    if u:
+        return f"@{u.username}" if u.username else u.first_name
+    return str(uid)
+
+def is_authorized(uid, amount):
+    cursor.execute("SELECT authorized_amount FROM users WHERE user_id=?", (uid,))
+    row = cursor.fetchone()
+    return row and row[0] == amount
+
+def authorize(uid, amount):
+    cursor.execute("INSERT OR REPLACE INTO users VALUES (?,?)", (uid, amount))
+    conn.commit()
+
+# ================= WELCOME =================
+
+async def new_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for u in update.message.new_chat_members:
+        user_cache[u.id] = u
+        kb = [[InlineKeyboardButton("👉 Activar Bot", url=BOT_LINK)]]
+        await update.message.reply_text(
+            f"👋 Bienvenido {get_name(u.id)}\n\nPulsa y escribe /start",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
+
+# ================= START =================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_cache[update.effective_user.id] = update.effective_user
+    kb = [[InlineKeyboardButton("Aceptar / Accept", callback_data="ok")]]
+    await update.message.reply_text(RULES_1, reply_markup=InlineKeyboardMarkup(kb))
+
+async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    await q.message.reply_text(RULES_2)
+    await q.message.reply_text(RULES_3)
+    await q.message.reply_text("✅ Ya puedes jugar → escribe PLAY en el grupo")
+
+# ================= RESTO SISTEMA (IGUAL QUE PRO) =================
+
+async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    kb = [
+        [InlineKeyboardButton("5€", callback_data="p5"),
+         InlineKeyboardButton("10€", callback_data="p10")],
+        [InlineKeyboardButton("20€", callback_data="p20"),
+         InlineKeyboardButton("50€", callback_data="p50")],
+        [InlineKeyboardButton("100€", callback_data="p100")]
+    ]
+    await update.message.reply_text("Selecciona apuesta", reply_markup=InlineKeyboardMarkup(kb))
 
 async def try_match(amount, context):
     global match_id_counter
@@ -137,80 +188,42 @@ async def try_match(amount, context):
         p1 = queue[amount].pop(0)
         p2 = queue[amount].pop(0)
 
-        user_in_queue.discard(p1)
-        user_in_queue.discard(p2)
-
         match_id = match_id_counter
         match_id_counter += 1
 
-        matches[match_id] = {
-            "p1": p1,
-            "p2": p2,
-            "amount": amount,
-            "status": "playing",
-            "r1": None,
-            "r2": None
-        }
+        cursor.execute(
+            "INSERT INTO matches VALUES (?,?,?,?,?,?,?)",
+            (match_id, p1, p2, amount, "playing", None, None)
+        )
+        conn.commit()
 
         user_match[p1] = match_id
         user_match[p2] = match_id
+        user_in_queue.discard(p1)
+        user_in_queue.discard(p2)
 
         await context.bot.send_message(
             GROUP_ID,
-            f"⚔️ MATCH {amount}€\n{get_name(p1)} vs {get_name(p2)}\n\nTenéis 1h para jugar"
+            f"⚔️ MATCH {amount}€\n{get_name(p1)} vs {get_name(p2)}"
         )
-
-# ================= BOT =================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    user_data_cache[user.id] = user
-
-    kb = [[InlineKeyboardButton("Aceptar / Accept", callback_data="accept")]]
-    await update.message.reply_text(RULES_1, reply_markup=InlineKeyboardMarkup(kb))
-
-async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-
-    await q.message.reply_text(RULES_2)
-    await q.message.reply_text(RULES_3)
-    await q.message.reply_text("✅ Ya puedes jugar. Ve al grupo y escribe PLAY")
-
-async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
-    user_data_cache[user.id] = user
-
-    kb = [
-        [InlineKeyboardButton("5€", callback_data="p5"), InlineKeyboardButton("10€", callback_data="p10")],
-        [InlineKeyboardButton("20€", callback_data="p20"), InlineKeyboardButton("50€", callback_data="p50")],
-        [InlineKeyboardButton("100€", callback_data="p100")]
-    ]
-    await update.message.reply_text("Selecciona partido", reply_markup=InlineKeyboardMarkup(kb))
 
 async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
     user = q.from_user
-    user_data_cache[user.id] = user
-
+    user_cache[user.id] = user
     amount = int(q.data.replace("p", ""))
 
     if not is_authorized(user.id, amount):
+        await q.message.reply_text("❗ Ve al BOT a pagar")
 
-        await q.message.reply_text("❗ Ve al BOT para pagar")
+        await context.bot.send_message(
+            user.id,
+            f"💳 Paga {amount}€ en:\n{PAYPAL_LINK}\n@{user.username}"
+        )
 
-        try:
-            await context.bot.send_message(
-                user.id,
-                f"💳 Debes pagar {amount}€ en:\n{PAYPAL_LINK}\n\nIndica tu usuario:\n@{user.username}"
-            )
-        except:
-            pass
-
-        kb = [[InlineKeyboardButton("Autorizar", callback_data=f"admin_ok_{user.id}_{amount}")]]
-
+        kb = [[InlineKeyboardButton("Autorizar", callback_data=f"a_{user.id}_{amount}")]]
         await context.bot.send_message(
             GROUP_ID,
             f"{get_name(user.id)} quiere jugar {amount}€",
@@ -219,7 +232,6 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if user.id in user_in_queue:
-        await q.message.reply_text("⚠️ Ya estás en cola")
         return
 
     queue[amount].append(user.id)
@@ -229,37 +241,58 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await try_match(amount, context)
 
 async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.from_user
+    user = update.effective_user
 
     if user.id not in user_match:
-        await update.message.reply_text("❌ No tienes partido activo")
+        await update.message.reply_text("❌ No tienes partido")
         return
 
     match_id = user_match[user.id]
-    match = matches[match_id]
 
-    if len(context.args) == 0:
-        await update.message.reply_text("Usa: /report win o /report lose")
+    cursor.execute("SELECT * FROM matches WHERE match_id=?", (match_id,))
+    m = cursor.fetchone()
+
+    if not context.args:
         return
 
     result = context.args[0]
 
-    if match["p1"] == user.id:
-        if match["r1"]:
-            await update.message.reply_text("⚠️ Ya reportaste")
-            return
-        match["r1"] = result
+    if user.id == m[1]:
+        cursor.execute("UPDATE matches SET r1=? WHERE match_id=?", (result, match_id))
     else:
-        if match["r2"]:
-            await update.message.reply_text("⚠️ Ya reportaste")
-            return
-        match["r2"] = result
+        cursor.execute("UPDATE matches SET r2=? WHERE match_id=?", (result, match_id))
 
-    if match["r1"] and match["r2"]:
-        if match["r1"] == match["r2"]:
+    conn.commit()
+
+    cursor.execute("SELECT r1,r2 FROM matches WHERE match_id=?", (match_id,))
+    r1, r2 = cursor.fetchone()
+
+    if r1 and r2:
+        if r1 == r2:
+            cursor.execute("UPDATE matches SET status='finished' WHERE match_id=?", (match_id,))
             await context.bot.send_message(GROUP_ID, "🏆 Resultado confirmado")
         else:
-            await context.bot.send_message(GROUP_ID, "⚠️ Conflicto en resultado")
+            cursor.execute("UPDATE matches SET status='disputed' WHERE match_id=?", (match_id,))
+            await context.bot.send_message(GROUP_ID, "⚠️ PARTIDO EN DISPUTA")
+
+    conn.commit()
+
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    cursor.execute("SELECT * FROM matches WHERE status='disputed'")
+    rows = cursor.fetchall()
+
+    if not rows:
+        await update.message.reply_text("No hay disputas")
+        return
+
+    msg = "⚠️ DISPUTAS:\n"
+    for r in rows:
+        msg += f"Match {r[0]} → {get_name(r[1])} vs {get_name(r[2])}\n"
+
+    await update.message.reply_text(msg)
 
 async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -268,28 +301,25 @@ async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q.from_user.id != ADMIN_ID:
         return
 
-    data = q.data.split("_")
-    user_id = int(data[2])
-    amount = int(data[3])
+    _, uid, amount = q.data.split("_")
+    authorize(int(uid), int(amount))
 
-    authorize_user(user_id, amount)
-
-    await context.bot.send_message(user_id, f"✅ Autorizado {amount}€")
-    await q.message.edit_text("Pago validado")
-
-# ================= MAIN =================
+    await context.bot.send_message(int(uid), "✅ Autorizado")
+    await q.message.edit_text("Pago OK")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("report", report))
+    app.add_handler(CommandHandler("admin", admin))
 
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_user))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)^play"), play))
 
     app.add_handler(CallbackQueryHandler(select, pattern="^p"))
-    app.add_handler(CallbackQueryHandler(accept, pattern="accept"))
-    app.add_handler(CallbackQueryHandler(admin_buttons, pattern="^admin_"))
+    app.add_handler(CallbackQueryHandler(accept, pattern="ok"))
+    app.add_handler(CallbackQueryHandler(admin_buttons, pattern="^a_"))
 
     app.run_polling()
 
