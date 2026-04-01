@@ -2,6 +2,7 @@ import logging
 import os
 import sqlite3
 from datetime import datetime, timedelta
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import *
 
@@ -22,7 +23,7 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     accepted_rules INTEGER DEFAULT 0,
-    authorized_amount INTEGER
+    authorized_amount INTEGER DEFAULT 0
 )
 """)
 
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS matches (
     created_at TEXT
 )
 """)
+
 conn.commit()
 
 # ================= MEMORIA =================
@@ -47,9 +49,8 @@ user_cache = {}
 user_match = {}
 match_id_counter = 1
 
-# ================= REGLAS ES + EN =================
-
-RULES = """📜 REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
+# ================= REGLAS (NO TOCADAS) =================
+RULES = """REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
 
 🇪🇸 ESPAÑOL
 
@@ -126,6 +127,26 @@ Fair Play
 • Unjustified disconnections are not allowed.
 """
 
+# ================= BIENVENIDA =================
+
+async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for user in update.message.new_chat_members:
+        await context.bot.send_message(
+            chat_id=GROUP_ID,
+            text=f"""👋 Bienvenido / Welcome {user.mention_html()}
+
+👉 Activa el bot:
+👉 Start the bot:
+
+https://t.me/Futelite_bot
+
+Luego escribe / Then type:
+
+/start
+play""",
+            parse_mode="HTML"
+        )
+
 # ================= START =================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -137,6 +158,7 @@ async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
 
     uid = q.from_user.id
+
     cursor.execute("INSERT OR IGNORE INTO users(user_id) VALUES (?)", (uid,))
     cursor.execute("UPDATE users SET accepted_rules=1 WHERE user_id=?", (uid,))
     conn.commit()
@@ -166,21 +188,37 @@ async def try_match(amount, context):
         match_id = match_id_counter
         match_id_counter += 1
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.utcnow()
 
         cursor.execute(
             "INSERT INTO matches VALUES (?,?,?,?,?,?,?,?)",
-            (match_id, p1, p2, amount, None, None, "playing", now)
+            (match_id, p1, p2, amount, None, None, "playing", now.isoformat())
         )
         conn.commit()
 
         user_match[p1] = match_id
         user_match[p2] = match_id
 
-        await context.bot.send_message(
-            GROUP_ID,
-            f"⚔️ MATCH {amount}€\n{get_name(p1)} vs {get_name(p2)}"
-        )
+        msg = f"""⚔️ MATCH {amount}€
+
+{get_name(p1)} vs {get_name(p2)}
+
+📩 Contacta por privado / Contact via DM
+⏱ 15 min para coordinar
+⏱ 1h para jugar
+
+/report win | /report lose"""
+
+        await context.bot.send_message(GROUP_ID, msg)
+
+        for p in [p1, p2]:
+            try:
+                await context.bot.send_message(p, msg)
+            except:
+                await context.bot.send_message(
+                    GROUP_ID,
+                    f"⚠️ {get_name(p)} NO ha iniciado el bot"
+                )
 
 # ================= REPORT =================
 
@@ -190,15 +228,23 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.id not in user_match:
         return
 
+    if len(context.args) == 0:
+        return
+
     match_id = user_match[user.id]
     result = context.args[0]
 
     cursor.execute("SELECT * FROM matches WHERE match_id=?", (match_id,))
     m = cursor.fetchone()
 
+    if m[6] != "playing":
+        return
+
     if user.id == m[1]:
+        if m[4]: return
         cursor.execute("UPDATE matches SET r1=? WHERE match_id=?", (result, match_id))
     else:
+        if m[5]: return
         cursor.execute("UPDATE matches SET r2=? WHERE match_id=?", (result, match_id))
 
     conn.commit()
@@ -210,14 +256,20 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if r1 == r2:
             winner = m[1] if r1 == "win" else m[2]
 
+            cursor.execute("UPDATE matches SET status='finished' WHERE match_id=?", (match_id,))
+            conn.commit()
+
             await context.bot.send_message(
                 GROUP_ID,
                 f"🏆 GANADOR / WINNER: {get_name(winner)}"
             )
         else:
+            cursor.execute("UPDATE matches SET status='dispute' WHERE match_id=?", (match_id,))
+            conn.commit()
+
             await context.bot.send_message(
                 GROUP_ID,
-                "⚠️ DISPUTA / DISPUTE"
+                "⚠️ DISPUTA / DISPUTE — Admin revisará"
             )
 
 # ================= PLAY =================
@@ -227,13 +279,17 @@ async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_cache[user.id] = user
 
     if not accepted(user.id):
-        await update.message.reply_text("Acepta reglas / Accept rules in bot")
+        await update.message.reply_text("Acepta reglas primero / Accept rules first")
+        return
+
+    if user.id in user_match:
+        await update.message.reply_text("Ya estás en partida")
         return
 
     kb = [[InlineKeyboardButton("5€", callback_data="p5"),
            InlineKeyboardButton("10€", callback_data="p10")]]
 
-    await update.message.reply_text("Selecciona apuesta / Select bet", reply_markup=InlineKeyboardMarkup(kb))
+    await update.message.reply_text("Selecciona apuesta", reply_markup=InlineKeyboardMarkup(kb))
 
 async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -242,8 +298,69 @@ async def select(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = q.from_user
     amount = int(q.data.replace("p", ""))
 
+    if user.id in queue[amount]:
+        return
+
     queue[amount].append(user.id)
     await try_match(amount, context)
+
+# ================= ADMIN PRO =================
+
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    await update.message.reply_text(
+        """/approve user_id amount
+/forcewin match_id user_id
+/logs"""
+    )
+
+async def approve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    uid = int(context.args[0])
+    amount = int(context.args[1])
+
+    cursor.execute("UPDATE users SET authorized_amount=? WHERE user_id=?", (amount, uid))
+    conn.commit()
+
+    await update.message.reply_text("Pago aprobado")
+
+async def forcewin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+
+    match_id = int(context.args[0])
+    winner = int(context.args[1])
+
+    cursor.execute("UPDATE matches SET status='finished' WHERE match_id=?", (match_id,))
+    conn.commit()
+
+    await update.message.reply_text("Ganador forzado")
+
+# ================= AUTO CONTROL TIEMPO =================
+
+async def check_matches(context):
+    now = datetime.utcnow()
+
+    cursor.execute("SELECT match_id, created_at, status FROM matches")
+    matches = cursor.fetchall()
+
+    for m in matches:
+        match_id, created_at, status = m
+        created_at = datetime.fromisoformat(created_at)
+
+        if status == "playing":
+            if now - created_at > timedelta(hours=1):
+                cursor.execute("UPDATE matches SET status='expired' WHERE match_id=?", (match_id,))
+                conn.commit()
+
+                await context.bot.send_message(
+                    GROUP_ID,
+                    f"⌛ MATCH {match_id} EXPIRADO / EXPIRED"
+                )
 
 # ================= MAIN =================
 
@@ -252,10 +369,17 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("report", report))
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CommandHandler("approve", approve))
+    app.add_handler(CommandHandler("forcewin", forcewin))
+
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)^play"), play))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
 
     app.add_handler(CallbackQueryHandler(select, pattern="^p"))
     app.add_handler(CallbackQueryHandler(accept, pattern="accept"))
+
+    app.job_queue.run_repeating(check_matches, interval=60)
 
     app.run_polling()
 
