@@ -131,21 +131,39 @@ Fair Play
 
 async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for user in update.message.new_chat_members:
+
+        # Mensaje en grupo
         await context.bot.send_message(
             chat_id=GROUP_ID,
             text=f"""👋 Bienvenido / Welcome {user.mention_html()}
 
-👉 Activa el bot:
-👉 Start the bot:
+👉 Te he enviado las reglas por privado
+👉 Check your private messages
 
-https://t.me/Futelite_bot
+⚠️ Si no las ves, inicia el bot:
+⚠️ If you don't see it, start the bot:
 
-Luego escribe / Then type:
-
-/start
-play""",
+https://t.me/Futelite_bot""",
             parse_mode="HTML"
         )
+
+        # Intento de mensaje privado con botón
+        try:
+            kb = [[InlineKeyboardButton("✅ Acepto / I Accept", callback_data="accept")]]
+
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=RULES,
+                reply_markup=InlineKeyboardMarkup(kb)
+            )
+
+        except:
+            # Si no ha iniciado el bot
+            await context.bot.send_message(
+                chat_id=GROUP_ID,
+                text=f"⚠️ {user.mention_html()} NO ha iniciado el bot privado",
+                parse_mode="HTML"
+            )
 
 # ================= START =================
 
