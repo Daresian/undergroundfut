@@ -20,7 +20,7 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     accepted_rules INTEGER DEFAULT 0,
-    authorized_amount INTEGER DEFAULT 0
+    balance INTEGER DEFAULT 0
 )
 """)
 
@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS matches (
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS proofs (
+    match_id INTEGER,
+    user_id INTEGER,
+    file_id TEXT
+)
+""")
+
 conn.commit()
 
 # ================= MEMORIA =================
@@ -45,7 +53,7 @@ user_cache = {}
 user_match = {}
 match_id_counter = 1
 
-# ================= REGLAS =================
+# ================= RULES =================
 RULES = """📜 REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
 
 🇪🇸 ESPAÑOL
@@ -124,7 +132,7 @@ Fair Play
 """
 
 # ================= CACHE =================
-async def cache_user(update: Update):
+async def cache_user(update):
     user = update.effective_user
     if user:
         user_cache[user.id] = user
@@ -133,32 +141,14 @@ def get_name(uid):
     u = user_cache.get(uid)
     return f"@{u.username}" if u and u.username else str(uid)
 
-# ================= WELCOME =================
-async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for user in update.message.new_chat_members:
-
-        user_cache[user.id] = user
-
-        await context.bot.send_message(
-            GROUP_ID,
-            f"👋 Bienvenido / Welcome {user.mention_html()}",
-            parse_mode="HTML"
-        )
-
-        try:
-            kb = [[InlineKeyboardButton("✅ Acepto / I Accept", callback_data="accept")]]
-            await context.bot.send_message(user.id, RULES, reply_markup=InlineKeyboardMarkup(kb))
-        except:
-            pass
-
 # ================= START =================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update, context):
     await cache_user(update)
     kb = [[InlineKeyboardButton("✅ Acepto / I Accept", callback_data="accept")]]
     await update.message.reply_text(RULES, reply_markup=InlineKeyboardMarkup(kb))
 
 # ================= ACCEPT =================
-async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def accept(update, context):
     q = update.callback_query
     await q.answer()
     uid = q.from_user.id
@@ -167,7 +157,54 @@ async def accept(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("UPDATE users SET accepted_rules=1 WHERE user_id=?", (uid,))
     conn.commit()
 
-    await q.message.edit_text("✅ Reglas aceptadas / Rules accepted")
+    await q.message.edit_text("✅ Reglas aceptadas")
+
+# ================= WALLET =================
+def get_balance(uid):
+    cursor.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
+    r = cursor.fetchone()
+    return r[0] if r else 0
+
+def update_balance(uid, amount):
+    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
+    conn.commit()
+
+# ================= PLAY =================
+async def play(update, context):
+    await cache_user(update)
+
+    user = update.effective_user
+    text = update.message.text.lower()
+
+    try:
+        amount = int(text.split(" ")[1])
+    except:
+        return await update.message.reply_text("Uso: play 10")
+
+    # reglas
+    cursor.execute("SELECT accepted_rules FROM users WHERE user_id=?", (user.id,))
+    r = cursor.fetchone()
+    if not r or r[0] != 1:
+        return await update.message.reply_text("Acepta reglas primero")
+
+    # saldo
+    if get_balance(user.id) < amount:
+        return await update.message.reply_text("Saldo insuficiente")
+
+    # ya jugando
+    if user.id in user_match:
+        return await update.message.reply_text("Ya estás en partida")
+
+    # ya en cola
+    for q in queue.values():
+        if user.id in q:
+            return await update.message.reply_text("Ya estás en cola")
+
+    queue[amount].append(user.id)
+
+    await update.message.reply_text(f"En cola {amount}€")
+
+    await try_match(amount, context)
 
 # ================= MATCH =================
 async def try_match(amount, context):
@@ -176,6 +213,10 @@ async def try_match(amount, context):
     if len(queue[amount]) >= 2:
         p1 = queue[amount].pop(0)
         p2 = queue[amount].pop(0)
+
+        # 💰 bloquear dinero
+        update_balance(p1, -amount)
+        update_balance(p2, -amount)
 
         match_id = match_id_counter
         match_id_counter += 1
@@ -192,38 +233,33 @@ async def try_match(amount, context):
         user_match[p2] = match_id
 
         kb = [[
-            InlineKeyboardButton("🏆 Gané / I Won", callback_data=f"win_{match_id}"),
-            InlineKeyboardButton("❌ Perdí / I Lost", callback_data=f"lose_{match_id}")
+            InlineKeyboardButton("🏆 Gané", callback_data=f"win_{match_id}"),
+            InlineKeyboardButton("❌ Perdí", callback_data=f"lose_{match_id}")
+        ],[
+            InlineKeyboardButton("📎 Subir prueba", callback_data=f"proof_{match_id}")
         ]]
 
-        msg = f"""⚔️ MATCH {amount}€
-{get_name(p1)} vs {get_name(p2)}
-
-📩 Contacta por privado / Contact via DM
-⏱ 15 min para coordinar
-⏱ 1h para jugar
-"""
+        msg = f"⚔️ MATCH {amount}€\n{get_name(p1)} vs {get_name(p2)}"
 
         await context.bot.send_message(GROUP_ID, msg)
 
-        # 🔥 DM GARANTIZADO
         for p in [p1, p2]:
             try:
                 await context.bot.send_message(p, msg, reply_markup=InlineKeyboardMarkup(kb))
-            except Exception as e:
-                logging.warning(f"DM fallo {p}: {e}")
-                await context.bot.send_message(
-                    GROUP_ID,
-                    f"⚠️ {get_name(p)} abre el bot 👉 https://t.me/Futelite_bot"
-                )
+            except:
+                await context.bot.send_message(GROUP_ID, f"{get_name(p)} abre bot")
 
-# ================= REPORT BOTÓN =================
-async def button_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= REPORT =================
+async def button(update, context):
     q = update.callback_query
     await q.answer()
 
-    user = q.from_user
     data = q.data
+    user = q.from_user
+
+    if "proof" in data:
+        await q.message.reply_text("Envía captura aquí")
+        return
 
     result, match_id = data.split("_")
     match_id = int(match_id)
@@ -231,14 +267,9 @@ async def button_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("SELECT * FROM matches WHERE match_id=?", (match_id,))
     m = cursor.fetchone()
 
-    if not m or m[6] != "playing":
-        return
-
     if user.id == m[1]:
-        if m[4]: return
         cursor.execute("UPDATE matches SET r1=? WHERE match_id=?", (result, match_id))
     else:
-        if m[5]: return
         cursor.execute("UPDATE matches SET r2=? WHERE match_id=?", (result, match_id))
 
     conn.commit()
@@ -250,67 +281,40 @@ async def button_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if r1 == r2:
             winner = m[1] if r1 == "win" else m[2]
 
-            cursor.execute("UPDATE matches SET status='finished' WHERE match_id=?", (match_id,))
-            conn.commit()
+            # 💰 pagar
+            update_balance(winner, m[3]*2)
 
-            user_match.pop(m[1], None)
-            user_match.pop(m[2], None)
+            await context.bot.send_message(GROUP_ID, f"🏆 {get_name(winner)} gana {m[3]*2}€")
 
-            await context.bot.send_message(GROUP_ID, f"🏆 WINNER: {get_name(winner)} 🎉")
         else:
             cursor.execute("UPDATE matches SET status='dispute' WHERE match_id=?", (match_id,))
-            conn.commit()
-
-            await context.bot.send_message(GROUP_ID, "⚠️ DISPUTA / DISPUTE")
-
-# ================= ANTI GHOSTING =================
-async def check_matches_loop(app):
-    while True:
-        now = datetime.utcnow()
-
-        cursor.execute("SELECT match_id, created_at, status FROM matches")
-        matches = cursor.fetchall()
-
-        for m in matches:
-            match_id, created_at, status = m
-            created_at = datetime.fromisoformat(created_at)
-
-            # ⏱ EXPIRACIÓN NORMAL
-            if status == "playing" and now - created_at > timedelta(hours=1):
-                cursor.execute("UPDATE matches SET status='expired' WHERE match_id=?", (match_id,))
-                conn.commit()
-
-                await app.bot.send_message(GROUP_ID, f"⌛ MATCH {match_id} EXPIRADO")
-
-            # 👻 ANTI GHOSTING
-            if status == "playing" and now - created_at > timedelta(minutes=15):
-                cursor.execute("UPDATE matches SET status='ghost' WHERE match_id=?", (match_id,))
-                conn.commit()
-
-                await app.bot.send_message(GROUP_ID, f"👻 MATCH {match_id} SIN RESPUESTA (15min)")
-
-        await asyncio.sleep(60)
+            await context.bot.send_message(GROUP_ID, "⚠️ DISPUTA")
 
 # ================= LOGS =================
-async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def logs(update, context):
     if update.effective_user.id != ADMIN_ID:
         return
 
     cursor.execute("SELECT * FROM matches ORDER BY match_id DESC LIMIT 10")
     data = cursor.fetchall()
 
-    msg = "\n".join([str(d) for d in data]) or "No logs"
+    await update.message.reply_text(str(data))
 
-    await update.message.reply_text(msg)
+# ================= LOOP =================
+async def loop(app):
+    while True:
+        now = datetime.utcnow()
 
-# ================= ADMIN =================
-async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return
+        cursor.execute("SELECT match_id, created_at FROM matches WHERE status='playing'")
+        for m in cursor.fetchall():
+            mid, created = m
+            created = datetime.fromisoformat(created)
 
-    await update.message.reply_text(
-        "🛠 Panel Admin\n/logs → ver partidas\n"
-    )
+            if now - created > timedelta(hours=1):
+                cursor.execute("UPDATE matches SET status='expired' WHERE match_id=?", (mid,))
+                await app.bot.send_message(GROUP_ID, f"Match {mid} expirado")
+
+        await asyncio.sleep(60)
 
 # ================= MAIN =================
 def main():
@@ -318,28 +322,15 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("logs", logs))
-    app.add_handler(CommandHandler("admin", admin))
 
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)^play"), play))
     app.add_handler(CallbackQueryHandler(accept, pattern="accept"))
-    app.add_handler(CallbackQueryHandler(button_report, pattern="^(win|lose)_"))
+    app.add_handler(CallbackQueryHandler(button))
 
-    # LOOP FIX
-    async def safe_check(context):
-        await check_matches_loop(context.application)
+    async def start_loop(app):
+        asyncio.create_task(loop(app))
 
-    if app.job_queue:
-        app.job_queue.run_repeating(safe_check, interval=60, first=10)
-    else:
-        async def fallback_loop(app):
-            while True:
-                await check_matches_loop(app)
-                await asyncio.sleep(60)
-
-        async def start_fallback(app):
-            asyncio.create_task(fallback_loop(app))
-
-        app.post_init = start_fallback
+    app.post_init = start_loop
 
     app.run_polling()
 
