@@ -318,10 +318,22 @@ def main():
 
     app.add_handler(CallbackQueryHandler(accept, pattern="accept"))
 
-    # ✅ SOLUCIÓN PRO: sin JobQueue
-    app.post_init = lambda app: asyncio.create_task(check_matches_loop(app))
+    # ================= FIX CRASH LOOP =================
+    async def safe_check(context):
+        await check_matches_loop(context.application)
+
+    if app.job_queue:
+        app.job_queue.run_repeating(safe_check, interval=60, first=10)
+    else:
+        async def fallback_loop(app):
+            while True:
+                await check_matches_loop(app)
+                await asyncio.sleep(60)
+
+        async def start_fallback(app):
+            asyncio.create_task(fallback_loop(app))
+
+        app.post_init = start_fallback
+    # =================================================
 
     app.run_polling()
-
-if __name__ == "__main__":
-    main()
