@@ -141,6 +141,23 @@ def get_name(uid):
     u = user_cache.get(uid)
     return f"@{u.username}" if u and u.username else str(uid)
 
+# ================= WELCOME =================
+async def welcome(update, context):
+    for user in update.message.new_chat_members:
+        user_cache[user.id] = user
+
+        await context.bot.send_message(
+            GROUP_ID,
+            f"👋 Bienvenido {user.mention_html()}",
+            parse_mode="HTML"
+        )
+
+        try:
+            kb = [[InlineKeyboardButton("✅ Acepto / I Accept", callback_data="accept")]]
+            await context.bot.send_message(user.id, RULES, reply_markup=InlineKeyboardMarkup(kb))
+        except:
+            pass
+
 # ================= START =================
 async def start(update, context):
     await cache_user(update)
@@ -172,7 +189,6 @@ def update_balance(uid, amount):
 # ================= PLAY =================
 async def play(update, context):
     await cache_user(update)
-
     user = update.effective_user
     text = update.message.text.lower()
 
@@ -181,28 +197,23 @@ async def play(update, context):
     except:
         return await update.message.reply_text("Uso: play 10")
 
-    # reglas
     cursor.execute("SELECT accepted_rules FROM users WHERE user_id=?", (user.id,))
     r = cursor.fetchone()
     if not r or r[0] != 1:
         return await update.message.reply_text("Acepta reglas primero")
 
-    # saldo
     if get_balance(user.id) < amount:
         return await update.message.reply_text("Saldo insuficiente")
 
-    # ya jugando
     if user.id in user_match:
         return await update.message.reply_text("Ya estás en partida")
 
-    # ya en cola
     for q in queue.values():
         if user.id in q:
             return await update.message.reply_text("Ya estás en cola")
 
     queue[amount].append(user.id)
-
-    await update.message.reply_text(f"En cola {amount}€")
+    await update.message.reply_text(f"🎮 En cola {amount}€")
 
     await try_match(amount, context)
 
@@ -214,7 +225,6 @@ async def try_match(amount, context):
         p1 = queue[amount].pop(0)
         p2 = queue[amount].pop(0)
 
-        # 💰 bloquear dinero
         update_balance(p1, -amount)
         update_balance(p2, -amount)
 
@@ -233,13 +243,17 @@ async def try_match(amount, context):
         user_match[p2] = match_id
 
         kb = [[
-            InlineKeyboardButton("🏆 Gané", callback_data=f"win_{match_id}"),
-            InlineKeyboardButton("❌ Perdí", callback_data=f"lose_{match_id}")
+            InlineKeyboardButton("🏆 Gané Win", callback_data=f"win_{match_id}"),
+            InlineKeyboardButton("❌ Perdí Lose", callback_data=f"lose_{match_id}")
         ],[
             InlineKeyboardButton("📎 Subir prueba", callback_data=f"proof_{match_id}")
         ]]
 
-        msg = f"⚔️ MATCH {amount}€\n{get_name(p1)} vs {get_name(p2)}"
+        msg = f"""⚔️ MATCH {amount}€
+{get_name(p1)} vs {get_name(p2)}
+
+⏱ 15 min para coordinar
+⏱ 1h para jugar"""
 
         await context.bot.send_message(GROUP_ID, msg)
 
@@ -247,9 +261,9 @@ async def try_match(amount, context):
             try:
                 await context.bot.send_message(p, msg, reply_markup=InlineKeyboardMarkup(kb))
             except:
-                await context.bot.send_message(GROUP_ID, f"{get_name(p)} abre bot")
+                await context.bot.send_message(GROUP_ID, f"⚠️ {get_name(p)} abre el bot")
 
-# ================= REPORT =================
+# ================= BUTTON =================
 async def button(update, context):
     q = update.callback_query
     await q.answer()
@@ -257,8 +271,8 @@ async def button(update, context):
     data = q.data
     user = q.from_user
 
-    if "proof" in data:
-        await q.message.reply_text("Envía captura aquí")
+    if data.startswith("proof"):
+        await q.message.reply_text("📎 Envía la prueba (imagen/video)")
         return
 
     result, match_id = data.split("_")
@@ -267,9 +281,14 @@ async def button(update, context):
     cursor.execute("SELECT * FROM matches WHERE match_id=?", (match_id,))
     m = cursor.fetchone()
 
+    if not m or m[6] != "playing":
+        return
+
     if user.id == m[1]:
+        if m[4]: return
         cursor.execute("UPDATE matches SET r1=? WHERE match_id=?", (result, match_id))
     else:
+        if m[5]: return
         cursor.execute("UPDATE matches SET r2=? WHERE match_id=?", (result, match_id))
 
     conn.commit()
@@ -281,14 +300,41 @@ async def button(update, context):
         if r1 == r2:
             winner = m[1] if r1 == "win" else m[2]
 
-            # 💰 pagar
             update_balance(winner, m[3]*2)
 
-            await context.bot.send_message(GROUP_ID, f"🏆 {get_name(winner)} gana {m[3]*2}€")
+            cursor.execute("UPDATE matches SET status='finished' WHERE match_id=?", (match_id,))
+            conn.commit()
 
+            user_match.pop(m[1], None)
+            user_match.pop(m[2], None)
+
+            await context.bot.send_message(GROUP_ID, f"🏆 {get_name(winner)} gana {m[3]*2}€")
         else:
             cursor.execute("UPDATE matches SET status='dispute' WHERE match_id=?", (match_id,))
+            conn.commit()
+
             await context.bot.send_message(GROUP_ID, "⚠️ DISPUTA")
+
+# ================= LOOP =================
+async def loop(app):
+    while True:
+        now = datetime.utcnow()
+
+        cursor.execute("SELECT match_id, created_at, status FROM matches")
+        for m in cursor.fetchall():
+            mid, created, status = m
+            created = datetime.fromisoformat(created)
+
+            if status == "playing" and now - created > timedelta(minutes=15):
+                cursor.execute("UPDATE matches SET status='ghost' WHERE match_id=?", (mid,))
+                await app.bot.send_message(GROUP_ID, f"👻 MATCH {mid} sin respuesta")
+
+            if status == "playing" and now - created > timedelta(hours=1):
+                cursor.execute("UPDATE matches SET status='expired' WHERE match_id=?", (mid,))
+                await app.bot.send_message(GROUP_ID, f"⌛ MATCH {mid} expirado")
+
+        conn.commit()
+        await asyncio.sleep(60)
 
 # ================= LOGS =================
 async def logs(update, context):
@@ -296,25 +342,7 @@ async def logs(update, context):
         return
 
     cursor.execute("SELECT * FROM matches ORDER BY match_id DESC LIMIT 10")
-    data = cursor.fetchall()
-
-    await update.message.reply_text(str(data))
-
-# ================= LOOP =================
-async def loop(app):
-    while True:
-        now = datetime.utcnow()
-
-        cursor.execute("SELECT match_id, created_at FROM matches WHERE status='playing'")
-        for m in cursor.fetchall():
-            mid, created = m
-            created = datetime.fromisoformat(created)
-
-            if now - created > timedelta(hours=1):
-                cursor.execute("UPDATE matches SET status='expired' WHERE match_id=?", (mid,))
-                await app.bot.send_message(GROUP_ID, f"Match {mid} expirado")
-
-        await asyncio.sleep(60)
+    await update.message.reply_text(str(cursor.fetchall()))
 
 # ================= MAIN =================
 def main():
@@ -323,7 +351,9 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("logs", logs))
 
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)^play"), play))
+
     app.add_handler(CallbackQueryHandler(accept, pattern="accept"))
     app.add_handler(CallbackQueryHandler(button))
 
