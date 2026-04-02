@@ -20,7 +20,9 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     user_id INTEGER PRIMARY KEY,
     accepted_rules INTEGER DEFAULT 0,
-    balance INTEGER DEFAULT 0
+    balance INTEGER DEFAULT 0,
+    payment_pending INTEGER DEFAULT 0,
+    payment_amount INTEGER DEFAULT 0
 )
 """)
 
@@ -129,6 +131,7 @@ Fair Play
 • Exploiting bugs is not allowed.
 • Intentional time-wasting is punishable.
 • Unjustified disconnections are not allowed.
+
 """
 
 # ================= CACHE =================
@@ -145,12 +148,6 @@ def get_name(uid):
 async def welcome(update, context):
     for user in update.message.new_chat_members:
         user_cache[user.id] = user
-
-        await context.bot.send_message(
-            GROUP_ID,
-            f"👋 Bienvenido {user.mention_html()}",
-            parse_mode="HTML"
-        )
 
         try:
             kb = [[InlineKeyboardButton("✅ Acepto / I Accept", callback_data="accept")]]
@@ -176,16 +173,6 @@ async def accept(update, context):
 
     await q.message.edit_text("✅ Reglas aceptadas")
 
-# ================= WALLET =================
-def get_balance(uid):
-    cursor.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
-    r = cursor.fetchone()
-    return r[0] if r else 0
-
-def update_balance(uid, amount):
-    cursor.execute("UPDATE users SET balance = balance + ? WHERE user_id=?", (amount, uid))
-    conn.commit()
-
 # ================= PLAY =================
 async def play(update, context):
     await cache_user(update)
@@ -202,20 +189,40 @@ async def play(update, context):
     if not r or r[0] != 1:
         return await update.message.reply_text("Acepta reglas primero")
 
-    if get_balance(user.id) < amount:
-        return await update.message.reply_text("Saldo insuficiente")
-
     if user.id in user_match:
         return await update.message.reply_text("Ya estás en partida")
 
-    for q in queue.values():
-        if user.id in q:
-            return await update.message.reply_text("Ya estás en cola")
+    cursor.execute("SELECT payment_pending FROM users WHERE user_id=?", (user.id,))
+    p = cursor.fetchone()
 
-    queue[amount].append(user.id)
-    await update.message.reply_text(f"🎮 En cola {amount}€")
+    if p and p[0] == 1:
+        return await update.message.reply_text("💳 Tienes un pago pendiente")
 
-    await try_match(amount, context)
+    cursor.execute("""
+        UPDATE users 
+        SET payment_pending=1, payment_amount=? 
+        WHERE user_id=?
+    """, (amount, user.id))
+    conn.commit()
+
+    try:
+        kb = [[InlineKeyboardButton("📩 He pagado", callback_data=f"paid_{user.id}_{amount}")]]
+        await context.bot.send_message(
+            user.id,
+            f"💳 Para jugar debes enviar {amount}€ por PayPal.\n\nEspera validación del admin.",
+            reply_markup=InlineKeyboardMarkup(kb)
+        )
+    except:
+        pass
+
+    kb_admin = [[InlineKeyboardButton("✅ Pago recibido", callback_data=f"payok_{user.id}_{amount}")]]
+    await context.bot.send_message(
+        ADMIN_ID,
+        f"💰 {get_name(user.id)} solicita validar {amount}€",
+        reply_markup=InlineKeyboardMarkup(kb_admin)
+    )
+
+    await update.message.reply_text("💳 Revisa tu privado para completar el pago")
 
 # ================= MATCH =================
 async def try_match(amount, context):
@@ -224,9 +231,6 @@ async def try_match(amount, context):
     if len(queue[amount]) >= 2:
         p1 = queue[amount].pop(0)
         p2 = queue[amount].pop(0)
-
-        update_balance(p1, -amount)
-        update_balance(p2, -amount)
 
         match_id = match_id_counter
         match_id_counter += 1
@@ -250,10 +254,7 @@ async def try_match(amount, context):
         ]]
 
         msg = f"""⚔️ MATCH {amount}€
-{get_name(p1)} vs {get_name(p2)}
-
-⏱ 15 min para coordinar
-⏱ 1h para jugar"""
+{get_name(p1)} vs {get_name(p2)}"""
 
         await context.bot.send_message(GROUP_ID, msg)
 
@@ -261,7 +262,7 @@ async def try_match(amount, context):
             try:
                 await context.bot.send_message(p, msg, reply_markup=InlineKeyboardMarkup(kb))
             except:
-                await context.bot.send_message(GROUP_ID, f"⚠️ {get_name(p)} abre el bot")
+                pass
 
 # ================= BUTTON =================
 async def button(update, context):
@@ -271,90 +272,45 @@ async def button(update, context):
     data = q.data
     user = q.from_user
 
+    if data == "accept":
+        return await accept(update, context)
+
+    if data.startswith("payok"):
+        if user.id != ADMIN_ID:
+            return
+
+        _, uid, amount = data.split("_")
+        uid = int(uid)
+        amount = int(amount)
+
+        cursor.execute("UPDATE users SET payment_pending=0 WHERE user_id=?", (uid,))
+        conn.commit()
+
+        queue[amount].append(uid)
+
+        await context.bot.send_message(uid, f"✅ Pago verificado. En cola {amount}€")
+        await try_match(amount, context)
+
+        await q.edit_message_text("✅ Pago confirmado")
+        return
+
     if data.startswith("proof"):
-        await q.message.reply_text("📎 Envía la prueba (imagen/video)")
+        await q.message.reply_text("📎 Envía la prueba")
         return
-
-    result, match_id = data.split("_")
-    match_id = int(match_id)
-
-    cursor.execute("SELECT * FROM matches WHERE match_id=?", (match_id,))
-    m = cursor.fetchone()
-
-    if not m or m[6] != "playing":
-        return
-
-    if user.id == m[1]:
-        if m[4]: return
-        cursor.execute("UPDATE matches SET r1=? WHERE match_id=?", (result, match_id))
-    else:
-        if m[5]: return
-        cursor.execute("UPDATE matches SET r2=? WHERE match_id=?", (result, match_id))
-
-    conn.commit()
-
-    cursor.execute("SELECT r1,r2 FROM matches WHERE match_id=?", (match_id,))
-    r1, r2 = cursor.fetchone()
-
-    if r1 and r2:
-        if r1 == r2:
-            winner = m[1] if r1 == "win" else m[2]
-
-            update_balance(winner, m[3]*2)
-
-            cursor.execute("UPDATE matches SET status='finished' WHERE match_id=?", (match_id,))
-            conn.commit()
-
-            user_match.pop(m[1], None)
-            user_match.pop(m[2], None)
-
-            await context.bot.send_message(GROUP_ID, f"🏆 {get_name(winner)} gana {m[3]*2}€")
-        else:
-            cursor.execute("UPDATE matches SET status='dispute' WHERE match_id=?", (match_id,))
-            conn.commit()
-
-            await context.bot.send_message(GROUP_ID, "⚠️ DISPUTA")
 
 # ================= LOOP =================
 async def loop(app):
     while True:
-        now = datetime.utcnow()
-
-        cursor.execute("SELECT match_id, created_at, status FROM matches")
-        for m in cursor.fetchall():
-            mid, created, status = m
-            created = datetime.fromisoformat(created)
-
-            if status == "playing" and now - created > timedelta(minutes=15):
-                cursor.execute("UPDATE matches SET status='ghost' WHERE match_id=?", (mid,))
-                await app.bot.send_message(GROUP_ID, f"👻 MATCH {mid} sin respuesta")
-
-            if status == "playing" and now - created > timedelta(hours=1):
-                cursor.execute("UPDATE matches SET status='expired' WHERE match_id=?", (mid,))
-                await app.bot.send_message(GROUP_ID, f"⌛ MATCH {mid} expirado")
-
-        conn.commit()
         await asyncio.sleep(60)
-
-# ================= LOGS =================
-async def logs(update, context):
-    if update.effective_user.id != ADMIN_ID:
-        return
-
-    cursor.execute("SELECT * FROM matches ORDER BY match_id DESC LIMIT 10")
-    await update.message.reply_text(str(cursor.fetchall()))
 
 # ================= MAIN =================
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("logs", logs))
-
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)^play"), play))
 
-    app.add_handler(CallbackQueryHandler(accept, pattern="accept"))
     app.add_handler(CallbackQueryHandler(button))
 
     async def start_loop(app):
