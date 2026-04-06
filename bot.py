@@ -1,8 +1,10 @@
 import logging
 import sqlite3
-from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup
-)
+import os
+import psutil
+
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ContextTypes, CallbackQueryHandler,
@@ -10,6 +12,17 @@ from telegram.ext import (
 )
 
 
+# ================= ANTI DUPLICADOS (CRÍTICO RAILWAY) =================
+current_pid = os.getpid()
+for proc in psutil.process_iter():
+    try:
+        if proc.pid != current_pid and "python" in proc.name():
+            proc.kill()
+    except:
+        pass
+
+
+# ================= CONFIG =================
 TOKEN = "8308224905:AAFp1h0eZgqfnAxtv_u94VkXh2bVxwRRJOU"
 ADMIN_ID = 123456789
 PAYPAL_LINK = "https://paypal.me/bucefalo74"
@@ -53,8 +66,7 @@ conn.commit()
 
 
 # ================= REGLAS =================
-RULES = """
-REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
+RULES = """ REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
 
 🇪🇸 ESPAÑOL
 
@@ -133,19 +145,20 @@ Fair Play
 """
 
 
-# ================= BIENVENIDA =================
-async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for member in update.message.new_chat_members:
-        try:
-            await context.bot.send_message(
-                member.id,
-                f"👋 Bienvenido {member.first_name}\n\n"
-                "⚠️ Debes activar el bot o NO podrás jugar\n"
-                "⚠️ You must activate the bot or you CANNOT play\n\n"
-                "Escribe /start"
-            )
-        except:
-            pass
+# ================= BIENVENIDA GRUPO =================
+async def welcome(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.new_chat_members:
+        for user in update.message.new_chat_members:
+            try:
+                await context.bot.send_message(
+                    user.id,
+                    f"👋 Hola {user.first_name}\n\n"
+                    "⚠️ ACTIVA el bot o NO podrás jugar\n"
+                    "⚠️ ACTIVATE the bot or you CANNOT play\n\n"
+                    "👉 Escribe /start"
+                )
+            except:
+                pass
 
 
 # ================= START =================
@@ -162,13 +175,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
     await update.message.reply_text(
-        f"👋 Hola {user.first_name}\n\n"
-        "Activa el bot para continuar",
+        f"👋 Bienvenido {user.first_name}\n\n"
+        "Debes activar el bot para continuar",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
-# ================= ACTIVAR =================
+# ================= ACTIVACIÓN =================
 async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -185,7 +198,7 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ================= REGLAS =================
-async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def accept_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
@@ -233,7 +246,7 @@ async def select_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
     await q.message.reply_text(
-        f"💳 Debes pagar {amount}€ antes de jugar\n{PAYPAL_LINK}\n\nEscribe PAGADO"
+        f"💳 Debes ingresar {amount}€ antes de jugar\n{PAYPAL_LINK}\n\nEscribe PAGADO"
     )
 
 
@@ -247,16 +260,20 @@ async def paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     amount = context.user_data.get("amount")
 
 
+    if not amount:
+        return
+
+
     await context.bot.send_message(
         ADMIN_ID,
         f"/confirm_{user.id}_{amount}"
     )
 
 
-    await update.message.reply_text("⏳ Esperando confirmación")
+    await update.message.reply_text("⏳ Esperando confirmación del admin")
 
 
-# ================= CONFIRM =================
+# ================= CONFIRMACIÓN ADMIN =================
 async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
@@ -271,7 +288,7 @@ async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
 
 
-    # MATCH
+    # MATCHMAKING
     cursor.execute("SELECT user_id FROM queue WHERE amount=?", (amount,))
     rival = cursor.fetchone()
 
@@ -333,26 +350,37 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
     cursor.execute("SELECT r1,r2,amount,p1,p2 FROM matches WHERE id=?", (match_id,))
-    r1,r2,amount,p1,p2 = cursor.fetchone()
+    r1, r2, amount, p1, p2 = cursor.fetchone()
 
 
     if r1 and r2:
         if r1 == r2:
-            g1,g2 = map(int, r1.split("-"))
+            g1, g2 = map(int, r1.split("-"))
             winner = p1 if g1 > g2 else p2
+
+
             prize = amount * 2 * 0.7
 
 
-            await context.bot.send_message(winner,
-                f"🎉 GANADOR\nHas ganado {prize}€")
+            await context.bot.send_message(
+                winner,
+                f"🎉 GANADOR\nHas ganado {prize}€"
+            )
 
 
             cursor.execute("UPDATE matches SET status='finished' WHERE id=?", (match_id,))
             conn.commit()
-
-
         else:
-            await context.bot.send_message(ADMIN_ID, f"⚠️ DISPUTA {match_id}")
+            await context.bot.send_message(
+                ADMIN_ID,
+                f"⚠️ DISPUTA en match {match_id}"
+            )
+
+
+# ================= ANTI TRAMPAS =================
+def anti_cheat(user):
+    cursor.execute("SELECT COUNT(*) FROM users WHERE username=?", (user.username,))
+    return cursor.fetchone()[0] > 1
 
 
 # ================= RESET =================
@@ -385,11 +413,11 @@ def main():
     app.add_handler(CommandHandler("reset_users", reset_users))
 
 
-    app.add_handler(ChatMemberHandler(new_member, ChatMemberHandler.CHAT_MEMBER))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
 
 
     app.add_handler(CallbackQueryHandler(activate, pattern="activate"))
-    app.add_handler(CallbackQueryHandler(rules, pattern="rules"))
+    app.add_handler(CallbackQueryHandler(accept_rules, pattern="rules"))
     app.add_handler(CallbackQueryHandler(select_amount, pattern="^[0-9]+$"))
 
 
