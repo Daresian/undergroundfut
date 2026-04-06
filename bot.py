@@ -42,7 +42,8 @@ cursor.execute("""CREATE TABLE IF NOT EXISTS matches (
 conn.commit()
 
 # ================= REGLAS =================
-RULES = """ REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
+RULES = """
+REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
 
 🇪🇸 ESPAÑOL
 
