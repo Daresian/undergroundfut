@@ -6,7 +6,7 @@ from telegram.ext import (
     filters, ContextTypes, CallbackQueryHandler
 )
 
-TOKEN = "Tu_Token"
+TOKEN = "8308224905:AAFp1h0eZgqfnAxtv_u94VkXh2bVxwRRJOU"
 ADMIN_ID = 123456789
 PAYPAL_LINK = "https://paypal.me/bucefalo74"
 
@@ -42,8 +42,7 @@ cursor.execute("""CREATE TABLE IF NOT EXISTS matches (
 conn.commit()
 
 # ================= REGLAS =================
-RULES = """
-REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
+RULES = """ REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
 
 🇪🇸 ESPAÑOL
 
@@ -118,6 +117,7 @@ Fair Play
 • Exploiting bugs is not allowed.
 • Intentional time-wasting is punishable.
 • Unjustified disconnections are not allowed.
+
 """
 
 # ================= START =================
