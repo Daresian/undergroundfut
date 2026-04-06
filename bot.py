@@ -1,13 +1,12 @@
 import logging
 import sqlite3
-import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ContextTypes, CallbackQueryHandler
 )
 
-TOKEN = "8308224905:AAFp1h0eZgqfnAxtv_u94VkXh2bVxwRRJOU"
+TOKEN = "TU_TOKEN"
 ADMIN_ID = 123456789
 PAYPAL_LINK = "https://paypal.me/bucefalo74"
 
@@ -43,7 +42,8 @@ cursor.execute("""CREATE TABLE IF NOT EXISTS matches (
 conn.commit()
 
 # ================= REGLAS =================
-RULES = """REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
+RULES = """
+REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
 
 🇪🇸 ESPAÑOL
 
@@ -118,23 +118,22 @@ Fair Play
 • Exploiting bugs is not allowed.
 • Intentional time-wasting is punishable.
 • Unjustified disconnections are not allowed.
-
 """
 
 # ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
-    cursor.execute("INSERT OR IGNORE INTO users (user_id, username) VALUES (?,?)",
-                   (user.id, user.username))
+    cursor.execute("INSERT OR IGNORE INTO users VALUES (?,?,?,?,?)",
+                   (user.id, user.username, 0, 0, 0))
     conn.commit()
 
     keyboard = [[InlineKeyboardButton("ACTIVAR / ACTIVATE", callback_data="activate")]]
 
     await update.message.reply_text(
-        f"👋 Hola {user.first_name}\n\n"
-        "⚠️ Debes ACTIVAR el bot o NO podrás jugar\n"
-        "⚠️ You must ACTIVATE the bot or you can't play",
+        f"👋 Bienvenido {user.first_name}\n\n"
+        "⚠️ Debes activar el bot para jugar\n"
+        "⚠️ You must activate the bot to play",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -158,12 +157,7 @@ async def accept_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("UPDATE users SET rules=1 WHERE user_id=?", (q.from_user.id,))
     conn.commit()
 
-    await q.message.reply_text(
-        "✅ Reglas aceptadas\n"
-        "👉 Escribe PLAY\n\n"
-        "✅ Rules accepted\n"
-        "👉 Type PLAY"
-    )
+    await q.message.reply_text("✅ Reglas aceptadas\nEscribe PLAY")
 
 # ================= PLAY =================
 async def play(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -191,67 +185,61 @@ async def select_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
 
     amount = int(q.data)
-
     context.user_data["amount"] = amount
 
     await q.message.reply_text(
-        f"💳 Debes pagar {amount}€ antes de jugar\n"
-        f"{PAYPAL_LINK}\n\n"
-        "Escribe PAGADO"
+        f"💳 Debes pagar {amount}€ antes de jugar\n{PAYPAL_LINK}\n\nEscribe PAGADO"
     )
 
-# ================= CONFIRMAR PAGO =================
+# ================= PAGADO =================
 async def paid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-
     if update.message.text.lower() != "pagado":
         return
 
+    user = update.effective_user
     amount = context.user_data.get("amount")
 
     await context.bot.send_message(
         ADMIN_ID,
-        f"💰 Usuario {user.id} solicita confirmación pago {amount}€\n"
-        f"/confirm_{user.id}"
+        f"/confirm_{user.id}_{amount}"
     )
 
-    await update.message.reply_text("⏳ Esperando validación admin")
+    await update.message.reply_text("⏳ Esperando confirmación admin")
 
-# ================= ADMIN CONFIRMA =================
-async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ================= CONFIRMAR =================
+async def confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
 
-    user_id = int(update.message.text.split("_")[1])
+    parts = update.message.text.split("_")
+    user_id = int(parts[1])
+    amount = int(parts[2])
 
     cursor.execute("UPDATE users SET paid=1 WHERE user_id=?", (user_id,))
     conn.commit()
 
-    cursor.execute("SELECT user_id FROM users WHERE paid=1")
-    conn.commit()
+    # MATCH
+    cursor.execute("SELECT user_id FROM queue WHERE amount=?", (amount,))
+    rival = cursor.fetchone()
 
-    await context.bot.send_message(user_id, "✅ Pago confirmado. Buscando rival...")
+    if rival:
+        rival_id = rival[0]
 
-    # MATCHMAKING
-    cursor.execute("SELECT user_id FROM queue")
-    players = cursor.fetchall()
-
-    if players:
-        opponent = players[0][0]
-
-        cursor.execute("DELETE FROM queue WHERE user_id=?", (opponent,))
+        cursor.execute("DELETE FROM queue WHERE user_id=?", (rival_id,))
         conn.commit()
 
-        cursor.execute("INSERT INTO matches (p1, p2, amount, status) VALUES (?,?,?,?)",
-                       (user_id, opponent, context.user_data.get("amount"), "playing"))
+        cursor.execute("INSERT INTO matches (p1,p2,amount,status) VALUES (?,?,?,?)",
+                       (user_id, rival_id, amount, "playing"))
         conn.commit()
 
-        await context.bot.send_message(user_id, f"🎮 Match encontrado vs {opponent}")
-        await context.bot.send_message(opponent, f"🎮 Match encontrado vs {user_id}")
+        await context.bot.send_message(user_id, f"🎮 Rival encontrado: {rival_id}")
+        await context.bot.send_message(rival_id, f"🎮 Rival encontrado: {user_id}")
 
     else:
-        cursor.execute("INSERT INTO queue VALUES (?,?)", (user_id, context.user_data.get("amount")))
+        cursor.execute("INSERT INTO queue VALUES (?,?)", (user_id, amount))
         conn.commit()
+
+        await context.bot.send_message(user_id, "⏳ Esperando rival")
 
 # ================= RESULTADOS =================
 async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -277,37 +265,29 @@ async def result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     conn.commit()
 
-    cursor.execute("SELECT r1, r2 FROM matches WHERE id=?", (match_id,))
-    r1, r2 = cursor.fetchone()
+    cursor.execute("SELECT r1,r2,amount,p1,p2 FROM matches WHERE id=?", (match_id,))
+    r1,r2,amount,p1,p2 = cursor.fetchone()
 
     if r1 and r2:
         if r1 == r2:
-            # GANADOR
-            g1, g2 = map(int, r1.split("-"))
-            if g1 > g2:
-                winner = match[1]
-            else:
-                winner = match[2]
+            g1,g2 = map(int, r1.split("-"))
+            winner = p1 if g1 > g2 else p2
 
-            amount = match[3]
             prize = amount * 2 * 0.7
 
             await context.bot.send_message(winner,
-                f"🏆 GANADOR\nHas ganado {prize}€ (30% comisión aplicada)")
+                f"🏆 GANADOR\n🎉 Has ganado {prize}€")
 
             cursor.execute("UPDATE matches SET status='finished' WHERE id=?", (match_id,))
             conn.commit()
 
         else:
-            # DISPUTA
-            await context.bot.send_message(ADMIN_ID,
-                f"⚠️ DISPUTA en match {match_id}")
+            await context.bot.send_message(ADMIN_ID, f"⚠️ DISPUTA match {match_id}")
 
 # ================= ANTI TRAMPA =================
 def anti_cheat(user):
     cursor.execute("SELECT COUNT(*) FROM users WHERE username=?", (user.username,))
-    count = cursor.fetchone()[0]
-    return count > 1
+    return cursor.fetchone()[0] > 1
 
 # ================= RESET =================
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -316,13 +296,16 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cursor.execute("DELETE FROM matches")
         cursor.execute("DELETE FROM queue")
         conn.commit()
-        await update.message.reply_text("BD borrada")
+        await update.message.reply_text("BD reseteada")
 
 # ================= MAIN =================
-async def main():
+def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
-    await app.bot.delete_webhook(drop_pending_updates=True)
+    import asyncio
+    asyncio.get_event_loop().run_until_complete(
+        app.bot.delete_webhook(drop_pending_updates=True)
+    )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
@@ -333,10 +316,12 @@ async def main():
 
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^play$"), play))
     app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^pagado$"), paid))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^/confirm_"), confirm))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, result))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("^/confirm_"), confirm_payment))
 
-    await app.run_polling()
+    print("BOT FUNCIONANDO")
+
+    app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
