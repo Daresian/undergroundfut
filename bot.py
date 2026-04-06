@@ -2,6 +2,9 @@
 import logging
 import os
 import sqlite3
+
+print("VERSION NUEVA BOT V3")
+
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import *
