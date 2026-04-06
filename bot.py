@@ -6,7 +6,7 @@ from telegram.ext import (
     filters, ContextTypes, CallbackQueryHandler
 )
 
-TOKEN = "8308224905:AAFp1h0eZgqfnAxtv_u94VkXh2bVxwRRJOU"
+TOKEN = "Tu_Token"
 ADMIN_ID = 123456789
 PAYPAL_LINK = "https://paypal.me/bucefalo74"
 
