@@ -1,9 +1,6 @@
 import logging
 import sqlite3
 import os
-import psutil
-
-
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
