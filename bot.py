@@ -2,7 +2,7 @@ from flask import Flask
 from threading import Thread
 
 
-app_web = Flask(_ _name_ _)
+app_web = Flask(__name__)
 
 
 @app_web.route('/')
