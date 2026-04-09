@@ -1,3 +1,24 @@
+Fask
+
+
+from flask import Flask
+from threading import Thread
+
+
+app_web = Flask('')
+
+
+@app_web.route('/')
+def home():
+    return "Bot vivo"
+
+
+def run_web():
+    app_web.run(host='0.0.0.0', port=8080)
+
+
+Thread(target=run_web).start()
+
 import logging
 import sqlite3
 import os
