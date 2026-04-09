@@ -367,6 +367,9 @@ async def reset_users(update, context):
     await update.message.reply_text("♻️ RESET COMPLETO")
 
 
+Main
+
+
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -391,8 +394,10 @@ def main():
 
 
     print("🔥 BOT 100% FUNCIONANDO")
-    app.run_polling(drop_pending_updates=True)
 
 
-if __name__ == "__main__":
-    main()
+    # 🔴 SOLUCIÓN AL CONFLICTO 409
+    app.run_polling(
+        drop_pending_updates=True,
+        allowed_updates=Update.ALL_TYPES,
+        close_loop=False
