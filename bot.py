@@ -384,10 +384,6 @@ async def reset_users(update, context):
 
     await update.message.reply_text("♻️ RESET COMPLETO")
 
-
-Main
-
-
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
