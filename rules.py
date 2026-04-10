@@ -1,10 +1,8 @@
 # rules.py
-# Reglas oficiales de Underground FUT
-# Proporcionadas por el propietario del proyecto
+# Reglas oficiales de Underground FUT proporcionadas por el propietario
 
 RULES_ES_PARTS = [
-    """
-📜 REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
+    """📜 REGLAMENTO DE LA COMUNIDAD UNDERGROUND FUT
 🇪🇸 ESPAÑOL
 
 Reglamento General
@@ -20,8 +18,7 @@ Reglas de Pago
 Está terminantemente prohibido tener varias cuentas y pactar partidas entre ellas. El sistema monitoriza patrones de juego para detectar posibles fraudes. Cualquier intento de engaño supondrá la expulsión inmediata de la comunidad y la pérdida de todo el saldo ingresado. El pago debe realizarse antes de solicitar el emparejamiento, permitiendo a cada jugador añadir la cantidad que desee a su monedero. El dinero jugado permanecerá retenido hasta la validación del resultado, y el premio será autorizado y abonado tras la validación, en un plazo máximo de 12 horas.
 """,
 
-    """
-Reglas de Partido
+    """Reglas de Partido
 
 Los partidos se disputarán en la modalidad Partido Amistoso online, utilizando siempre la configuración por defecto del juego. No está permitido modificar los ajustes, y la duración será de 6 minutos por parte. Todos los partidos deben finalizar con una victoria; el empate no es un resultado válido, por lo que se debe jugar prórroga y penaltis si es necesario. Solo se pueden utilizar equipos Ultimate Team.
 
@@ -29,11 +26,10 @@ Está prohibida la utilización de sliders y hándicaps. En caso de incumplimien
 
 Tiempo para Jugar
 
-Tras realizar el emparejamiento, los usuarios dispondrán de un máximo de 15 minutos para ponerse en contacto y acordar el inicio del partido. Una vez hecho el “match”, tendrán un máximo de 1 hora para jugar y comunicar el resultado.
+Tras realizar el emparejamiento, los usuarios dispondrán de un máximo de 15 minutos para ponerse en contacto y acordar el inicio del partido. Una vez hecho el match, tendrán un máximo de 1 hora para jugar y comunicar el resultado.
 """,
 
-    """
-Desconexiones
+    """Desconexiones
 
 Es imprescindible que ambos jugadores graben los partidos para conservar el derecho a reclamar en caso de disputa.
 
@@ -59,8 +55,7 @@ Fair Play
 
 
 RULES_EN_PARTS = [
-    """
-📜 UNDERGROUND FUT COMMUNITY RULES
+    """📜 UNDERGROUND FUT COMMUNITY RULES
 🇬🇧 ENGLISH
 
 General Rules
@@ -76,8 +71,7 @@ Payment Rules
 Having multiple accounts and arranging matches between them is strictly prohibited. The system monitors gameplay patterns to detect fraud. Any attempt to cheat will result in immediate expulsion from the community and loss of all deposited funds. Payment must be made before requesting matchmaking, allowing each player to add funds to their wallet. The money played will remain locked until result validation, and the prize will be authorized and paid within a maximum of 12 hours.
 """,
 
-    """
-Match Rules
+    """Match Rules
 
 Matches must be played in Online Friendly mode using default settings. Settings cannot be modified, and each half must last 6 minutes. All matches must end with a winner; draws are not allowed, so extra time and penalties must be played if necessary. Only Ultimate Team squads are allowed.
 
@@ -88,8 +82,7 @@ Time to Play
 After matchmaking, players have a maximum of 15 minutes to contact each other and agree on the match start. Once matched, they have a maximum of 1 hour to play and report the result.
 """,
 
-    """
-Disconnections
+    """Disconnections
 
 Both players must record matches to maintain the right to claim in case of disputes.
 
