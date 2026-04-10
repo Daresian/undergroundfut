@@ -10,7 +10,13 @@ from handlers import start, play, results, admin
 async def main():
     init_db()
 
-    bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
+    from aiogram.client.default import DefaultBotProperties
+
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
+
     dp = Dispatcher(storage=MemoryStorage())
 
     dp.include_router(start.router)
