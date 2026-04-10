@@ -1,1 +1,10 @@
+RULES_ES_PARTS = [
+    """TU BLOQUE 1 EN ESPAÑOL""",
+    """TU BLOQUE 2 EN ESPAÑOL"""
+]
+
+RULES_EN_PARTS = [
+    """YOUR BLOCK 1 IN ENGLISH""",
+    """YOUR BLOCK 2 IN ENGLISH"""
+]
 
