@@ -1,0 +1,7 @@
+futelite.db
+futelite.db-shm
+futelite.db-wal
+__pycache__
+.pyc
+.env
+{handlers,keyboards,states,utils,anticheat,services,messages}
