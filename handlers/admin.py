@@ -318,3 +318,12 @@ async def cmd_stats(message: Message):
         f"⚠️ Disputas abiertas: {disputes}",
         parse_mode="Markdown"
     )
+    @router.message(Command("reset"))
+async def cmd_reset(message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    db.reset_user(message.from_user.id)
+    db.set_state(message.from_user.id, "IDLE")
+    with db.get_conn() as conn:
+        conn.execute("DELETE FROM queue WHERE user_id=?", (message.from_user.id,))
+    await message.answer("✅ Tu cuenta ha sido reseteada. Usa /start para empezar.")
