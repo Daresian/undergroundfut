@@ -23,7 +23,7 @@ STAKES = [5, 10, 20, 50, 100]
 
 # Usuarios de prueba: pon aquí los Telegram IDs (números)
 # Estos usuarios se resetean cada vez que salen y entran al grupo
-TEST_USERS = [8792953979,6452948848]  # Ejemplo: [123456789, 987654321]
+TEST_USERS = [8792953979,6452948848,13493800]  # Ejemplo: [123456789, 987654321]
 
 # ─── Tiempos (no tocar salvo que sepas lo que haces) ──────────
 TIMEOUT_PAGO_MINUTOS        = 15
